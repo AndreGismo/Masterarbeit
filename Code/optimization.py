@@ -87,29 +87,20 @@ class GridLineOptimizer:
             return sum(sum(model.voltages[i]*model.I[j, i] for i in model.buses) for j in model.times)
 
         model.max_power = pe.Objective(rule=max_power_rule, sense=pe.maximize)
-        #zum Überprüfen mal pprinten lassen
-        model.max_power.pprint()
 
         # TODO: das verursacht den Fehler beim Constraint (weil I jetzt natürlich falsch indexiert ist => anpassen!
         # Einschränkungen festlegen
-        # das gilt jetzt erst für den timestep 0
-        # das ganze mal versuchen mit closure zu machen: die äußere Funktion gibt das entsprechende t gibt
         def min_voltage_rule(model, t):
-            def wrapper(model):
-                return model.voltages[0] - sum(model.impedances[i] * sum(model.I[t,j] for j in range(i+1, len(model.buses)))
-                                                for i in model.lines) >= model.u_min
-            return wrapper
+            return sum(model.voltages[0] - sum(model.impedances[i] * sum(model.I[t, j] for j in range(i, len(model.buses)))
+                                           for i in model.lines) for t in model.times)>= model.u_min
 
 
-        def max_current_rule(model):
-            return sum(model.I[i] for i in model.buses) <= model.i_max
+        def max_current_rule(model, t):
+            return sum(sum(model.I[t, n] for n in model.buses) for t in model.times) <= model.i_max
 
 
-        for t in model.times:
-            model.min_voltage = pe.Constraint(rule=min_voltage_rule(model, t))
-
-        model.min_voltage.pprint()
-        model.max_current = pe.Constraint(rule=max_current_rule)
+        model.min_voltage = pe.Constraint(model.times, rule=min_voltage_rule)
+        model.max_current = pe.Constraint(model.times, rule=max_current_rule)
 
         return model
 
@@ -184,16 +175,16 @@ class GridLineOptimizer:
 
 if __name__ == '__main__':
     t0 = time.time()
-    test = GridLineOptimizer(6)
+    test = GridLineOptimizer(3)
 
 
-    # print(test.buses)
-    # print(test.lines)
-    # print(test.impedances)
-    # print(test.u_min)
-    # test.display_target_function()
-    # test.display_min_voltage_constraint()
-    # test.display_max_current_constraint()
+    print(test.buses)
+    print(test.lines)
+    print(test.impedances)
+    print(test.u_min)
+    test.display_target_function()
+    test.display_min_voltage_constraint()
+    test.display_max_current_constraint()
     # res = test.run_optimization_single_timestep(tee=False)
     # for i, val in enumerate(res):
     #     print(f'Strom am Knoten {i}: {val}')
