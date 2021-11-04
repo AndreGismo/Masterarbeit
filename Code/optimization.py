@@ -48,7 +48,7 @@ class GridLineOptimizer:
 
 
     def _make_lines(self):
-        return set(range(self.number_buses-1))
+        return set(range(self.number_buses))
 
 
     def _make_voltages(self):
@@ -91,12 +91,12 @@ class GridLineOptimizer:
         # TODO: das verursacht den Fehler beim Constraint (weil I jetzt natürlich falsch indexiert ist => anpassen!
         # Einschränkungen festlegen
         def min_voltage_rule(model, t):
-            return sum(model.voltages[0] - sum(model.impedances[i] * sum(model.I[t, j] for j in range(i, len(model.buses)))
-                                           for i in model.lines) for t in model.times)>= model.u_min
+            return model.voltages[0] - sum(model.impedances[i] * sum(model.I[t, j] for j in range(i, len(model.buses)))
+                                           for i in model.lines) >= model.u_min
 
 
         def max_current_rule(model, t):
-            return sum(sum(model.I[t, n] for n in model.buses) for t in model.times) <= model.i_max
+            return sum(model.I[t, n] for n in model.buses) <= model.i_max
 
 
         model.min_voltage = pe.Constraint(model.times, rule=min_voltage_rule)
