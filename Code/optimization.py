@@ -146,7 +146,7 @@ class GridLineOptimizer:
 
     def run_optimization_single_timestep(self, **kwargs):
         self.solver_factory.solve(self.optimization_model, tee=kwargs['tee'])
-        #return list(self.optimization_model.I[:].value)
+        return list(self.optimization_model.I[:, :].value)
 
 
     def plot_grid(self):
@@ -175,7 +175,7 @@ class GridLineOptimizer:
 
 if __name__ == '__main__':
     t0 = time.time()
-    test = GridLineOptimizer(5)
+    test = GridLineOptimizer(8)
 
 
     print(test.buses)
@@ -185,11 +185,12 @@ if __name__ == '__main__':
     test.display_target_function()
     test.display_min_voltage_constraint()
     test.display_max_current_constraint()
-    res = test.run_optimization_single_timestep(tee=False)
+    res = test.run_optimization_single_timestep(tee=True)
     #for i, val in enumerate(res):
         #print(f'Strom am Knoten {i}: {val}')
     #
     dt = time.time() - t0
     print('Laufzeit', dt)
-    test.optimization_model.pprint()
     #test.plot_grid()
+    test.optimization_model.I.pprint()
+    print(res)
