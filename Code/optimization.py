@@ -9,17 +9,18 @@ import pandapower as pp
 import matplotlib.pyplot as plt
 import networkx as nx
 import time
+from battery_electric_vehicle import BatteryElectricVehicle as BEV
 
 
 
 class GridLineOptimizer:
-    def __init__(self, number_buses, charger_locs=None, voltages=None, impedances=None,
+    def __init__(self, number_buses, bev_buses, charger_locs=None, voltages=None, impedances=None,
                  s_trafo_kVA=100, solver='glpk'):
         self.number_buses = number_buses
         self.buses = self._make_buses()
         self.lines = self._make_lines()
         self.times = set(range(24))
-        self.buses_at_times = self._make_buses_at_times()
+        #self.buses_at_times = self._make_buses_at_times()
         if voltages == None:
             self.voltages = self._make_voltages()
         else:
@@ -29,6 +30,7 @@ class GridLineOptimizer:
         self.s_trafo = s_trafo_kVA
         self.solver = solver
         self.solver_factory = pe.SolverFactory(self.solver)
+        self.resolution = 60
         if charger_locs == None:
             self.charger_locs = self.buses  # vielleicht lieber als dict: {1: True, 2: False...}?
         else:
@@ -38,6 +40,10 @@ class GridLineOptimizer:
             self.impedances = self._make_impedances()
         else:
             self.impedances = impedances
+
+        self.bev_buses = bev_buses
+        self.bevs = []
+        self._make_bevs()
 
         self.optimization_model = self._setup_model()
         self.grid = self._setup_grid()
@@ -55,12 +61,20 @@ class GridLineOptimizer:
         return {i: 400 for i in self.buses}
 
 
-    def _make_buses_at_times(self):
-        return {i: self.buses for i in self.times}
+    #def _make_buses_at_times(self):
+        #return {i: self.buses for i in self.times}
 
 
     def _make_impedances(self):
         return {i: 0.04 for i in self.lines}
+
+
+    def _make_bevs(self):
+        for bus in self.bev_buses:
+            bev_bus_voltage = list(self.voltages)[bus]
+            bev = BEV(home_bus=bus, e_bat=50, bus_voltage=bev_bus_voltage, resolution=self.resolution)
+            print('BEV erzeugt an Bus', bus)
+            self.bevs.append(bev)
 
 
     def _setup_model(self):
@@ -80,7 +94,6 @@ class GridLineOptimizer:
 
         # Entscheidungsvariablen erzeugen
         model.I = pe.Var(model.times*model.buses, domain=pe.PositiveReals, bounds=(0, 27))
-        model.I.pprint()
 
         # Zielfunktion erzeugen
         def max_power_rule(model):
@@ -88,7 +101,7 @@ class GridLineOptimizer:
 
         model.max_power = pe.Objective(rule=max_power_rule, sense=pe.maximize)
 
-        # TODO: das verursacht den Fehler beim Constraint (weil I jetzt natürlich falsch indexiert ist => anpassen!
+
         # Einschränkungen festlegen
         def min_voltage_rule(model, t):
             return model.voltages[0] - sum(model.impedances[i] * sum(model.I[t, j] for j in range(i, len(model.buses)))
@@ -173,24 +186,36 @@ class GridLineOptimizer:
         plt.show()
 
 
+    def list_bevs(self):
+        for bev in self.bevs:
+            print('---------------------------------')
+            print(f'BEV an Bus {bev.home_bus}')
+            print(f'mit Batterie {bev.e_bat} kWh')
+            print(f'und SOC {bev.current_soc} %')
+
+
+
 if __name__ == '__main__':
     t0 = time.time()
-    test = GridLineOptimizer(8)
+    test = GridLineOptimizer(8, bev_buses=[0,2,4,6,7])
+    print(test.bevs)
+    test.list_bevs()
 
 
-    print(test.buses)
-    print(test.lines)
-    print(test.impedances)
-    print(test.u_min)
-    test.display_target_function()
-    test.display_min_voltage_constraint()
-    test.display_max_current_constraint()
-    res = test.run_optimization_single_timestep(tee=True)
-    #for i, val in enumerate(res):
-        #print(f'Strom am Knoten {i}: {val}')
-    #
-    dt = time.time() - t0
-    print('Laufzeit', dt)
-    #test.plot_grid()
-    test.optimization_model.I.pprint()
-    print(res)
+    # print(test.buses)
+    # print(test.lines)
+    # print(test.impedances)
+    # print(test.u_min)
+    # test.display_target_function()
+    # test.display_min_voltage_constraint()
+    # test.display_max_current_constraint()
+    # res = test.run_optimization_single_timestep(tee=True)
+    # #for i, val in enumerate(res):
+    #     #print(f'Strom am Knoten {i}: {val}')
+    # #
+    # dt = time.time() - t0
+    # print('Laufzeit', dt)
+    # #test.plot_grid()
+    # test.optimization_model.I.pprint()
+    # print(res)
+
