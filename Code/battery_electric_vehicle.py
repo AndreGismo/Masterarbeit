@@ -15,5 +15,5 @@ class BatteryElectricVehicle:
         self.current_soc = soc_start
 
 
-    def calc_soc(self, i_load):
-        self.current_soc += self.bus_voltage * i_load * self.resolution / 60
+    def plot_soc(self):
+        pass

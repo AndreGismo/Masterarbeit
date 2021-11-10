@@ -5,7 +5,16 @@ man nach der Optimierung die Ergebnisse überprüfen kann.
 """
 
 import pyomo.environ as pe
-import pandapower as pp
+
+# TODO: noch dafür sorgen, dass bei fehlendem pandapower _create_grid() nicht aufgerufen wird
+try:
+    import pandapower as pp
+
+except ImportError:
+    print('WARNING: module pandapower not available, some features are ',
+          'only available with pandapower')
+    __pandapwer_available = False
+
 import matplotlib.pyplot as plt
 import networkx as nx
 import time
@@ -14,12 +23,15 @@ from battery_electric_vehicle import BatteryElectricVehicle as BEV
 
 
 class GridLineOptimizer:
+    global __pandapwer_available
+
     def __init__(self, number_buses, bev_buses, charger_locs=None, voltages=None, impedances=None,
                  s_trafo_kVA=100, solver='glpk'):
+        self.current_timestep = 0
         self.number_buses = number_buses
         self.buses = self._make_buses()
         self.lines = self._make_lines()
-        self.times = set(range(24))
+        self.times = self._make_times()
         #self.buses_at_times = self._make_buses_at_times()
         if voltages == None:
             self.voltages = self._make_voltages()
@@ -50,15 +62,19 @@ class GridLineOptimizer:
 
 
     def _make_buses(self):
-        return set(range(self.number_buses))
+        return list(range(self.number_buses))
 
 
     def _make_lines(self):
-        return set(range(self.number_buses))
+        return list(range(self.number_buses))
+
+
+    def _make_times(self):
+        return list(range(self.current_timestep, self.current_timestep+24))
 
 
     def _make_voltages(self):
-        return {i: 400 for i in self.buses}
+        return {i: 400-i/2 for i in self.buses}
 
 
     #def _make_buses_at_times(self):
@@ -162,6 +178,15 @@ class GridLineOptimizer:
         return list(self.optimization_model.I[:, :].value)
 
 
+    def run_optimization_rolling_horizon(self, complete_horizon, **kwargs):
+        for i in range(complete_horizon):
+            print('aktueller Zeitschritt:', i)
+            self.current_timestep = i
+            self.times = self._make_times()
+            self.optimization_model = self._setup_model()
+            self.solver_factory.solve(self.optimization_model, tee=kwargs['tee'])
+
+
     def plot_grid(self):
         # simple_plotly und simple_plot gehen nicht
         graph = nx.DiGraph()
@@ -192,12 +217,14 @@ class GridLineOptimizer:
             print(f'BEV an Bus {bev.home_bus}')
             print(f'mit Batterie {bev.e_bat} kWh')
             print(f'und SOC {bev.current_soc} %')
+            # TODO noch dafür sorgen, dass jedes BEV die korrekte Knotenspannung bekommt
+            print(f'an Knotenspannung {bev.bus_voltage} V')
 
 
 
 if __name__ == '__main__':
     t0 = time.time()
-    test = GridLineOptimizer(8, bev_buses=[0,2,4,6,7])
+    test = GridLineOptimizer(6, bev_buses=list(range(6)))
     print(test.bevs)
     test.list_bevs()
 
@@ -206,16 +233,21 @@ if __name__ == '__main__':
     # print(test.lines)
     # print(test.impedances)
     # print(test.u_min)
-    # test.display_target_function()
-    # test.display_min_voltage_constraint()
-    # test.display_max_current_constraint()
+    test.display_target_function()
+    test.display_min_voltage_constraint()
+    test.display_max_current_constraint()
     # res = test.run_optimization_single_timestep(tee=True)
     # #for i, val in enumerate(res):
     #     #print(f'Strom am Knoten {i}: {val}')
     # #
-    # dt = time.time() - t0
-    # print('Laufzeit', dt)
+    dt = time.time() - t0
+    print('Laufzeit', dt)
+    print('starte rolling horizon: \n')
+    test.run_optimization_rolling_horizon(72, tee=False)
+    dt = time.time() - t0
+    print('fertig nach', dt, 'sek')
     # #test.plot_grid()
     # test.optimization_model.I.pprint()
     # print(res)
+
 
