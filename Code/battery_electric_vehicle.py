@@ -5,13 +5,13 @@ wie groß die Batterie ist.
 """
 
 class BatteryElectricVehicle:
-    def __init__(self, home_bus, e_bat, bus_voltage, soc_start=50, soc_target=100, t_occupancy=None, resolution=None):
+    def __init__(self, home_bus, e_bat, bus_voltage, soc_start=50, soc_target=100, t_target=None, resolution=None):
         self.home_bus = home_bus
         self.e_bat = e_bat
         self.bus_voltage = bus_voltage
         self.soc_start = soc_start
         self.soc_target = soc_target
-        self.t_occupancy = t_occupancy
+        self.t_target = t_target
         self.resolution = resolution
         self.soc_list = [soc_start]
         self.is_loading = True

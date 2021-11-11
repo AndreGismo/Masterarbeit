@@ -53,7 +53,7 @@ class GridLineOptimizer:
             self.voltages = self._make_voltages()
         else:
             self.voltages = voltages
-        self.i_max = 160   # 160
+        self.i_max = 80   # 160
         self.u_min = 0.9*400/3**0.5
         self.s_trafo = s_trafo_kVA
         self.solver = solver
@@ -165,6 +165,8 @@ class GridLineOptimizer:
 
 
         def track_socs_rule(model, t, b):
+            # schauen, dass man immer nur bis zum vorletzten timestep geht (weil es
+            # sonst kein t+1 mehr geben würde beim letzten timestep)
             if t < self.current_timestep + 23:
                 return (model.SOC[t, b] + model.I[t, b] * model.voltages[b] * self.resolution/60 / 1000
                         / self.bevs[b].e_bat*100 - model.SOC[t+1, b]) == 0
@@ -172,10 +174,27 @@ class GridLineOptimizer:
             else:
                 return pe.Constraint.Skip
 
+        #TODO: schauen, dass wenn der rolling horizon so weit fortgeschritten ist, dass der Ziel-
+        # Zeitpunkt nicht mehr im aktuell betrachteten Horizont enthalten ist, dass dann dieser
+        # Constraint auch nicht mehr auftaucht (geht vielleicht schon automatisch durch t == t_target)
+        def ensure_final_soc_rule(model, t, b):
+            # schauen, dass man das immer beim letzten Zeitpunkt
+            if t == self.bevs[b].t_target:
+                print('==============================')
+                print('Constraint geschrieben')
+                return sum(model.voltages[b] * model.I[t, b] for b in model.buses)* self.resolution/60\
+                /1000 / self.bevs[b].e_bat * 100 < (self.bevs[b].soc_target - self.bevs[b].soc_start)
+
+            else:
+                print('==============================')
+                print('Kein Constraint geschrieben')
+                return pe.Constraint.Skip
+
 
         model.min_voltage = pe.Constraint(model.times, rule=min_voltage_rule)
         model.max_current = pe.Constraint(model.times, rule=max_current_rule)
         model.track_socs = pe.Constraint(model.times*model.buses, rule=track_socs_rule)
+        model.ensure_final_soc = pe.Constraint(model.times*model.buses, rule=ensure_final_soc_rule)
 
         return model
 
@@ -264,6 +283,8 @@ class GridLineOptimizer:
             self.optimization_model = self._setup_model()
             self.solver_factory.solve(self.optimization_model, tee=kwargs['tee'])
             self._store_results()
+            #if i == 1:
+            self.optimization_model.ensure_final_soc.pprint()
 
 
     def plot_grid(self):
@@ -310,7 +331,7 @@ class GridLineOptimizer:
 
 if __name__ == '__main__':
     t0 = time.time()
-    test = GridLineOptimizer(15, bev_buses=list(range(15)), resolution=60)
+    test = GridLineOptimizer(6, bev_buses=list(range(6)), resolution=60)
     print(test.bevs)
     test.list_bevs()
 
@@ -322,7 +343,7 @@ if __name__ == '__main__':
     test.display_target_function()
     test.display_min_voltage_constraint()
     test.display_max_current_constraint()
-    test.display_track_socs_constraint()
+    #test.display_track_socs_constraint()
     #res = test.run_optimization_single_timestep(tee=True)
     # #for i, val in enumerate(res):
     #     #print(f'Strom am Knoten {i}: {val}')
