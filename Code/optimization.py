@@ -73,6 +73,10 @@ class GridLineOptimizer:
         self.optimization_model = self._setup_model()
         self.grid = self._setup_grid()
 
+        # hier kommen dann die Ergebnisse für jeden Knoten zu jedem
+        # timstep der Strom rein (die SOCs werden im BEV gespeichert)
+        self.results_I = {bus: [] for bus in self.buses}
+
 
     def _make_buses(self):
         return list(range(self.number_buses))
@@ -205,7 +209,29 @@ class GridLineOptimizer:
     def display_track_socs_constraint(self):
         self.optimization_model.track_socs.pprint()
 
+    # nach jedem Optimierungsdurchlauf die Ergebnisse aus dem Model und
+    # die SOCs in den BEVs speichern, I hier irgendwo...
+    def _store_results(self):
+        """
+        Fragt die Optimierungsergebnisse der Entscheidungsvariablen I und SOC aus dem
+        Optimierungsmodel ab und speichert diese.
+        :return:
+        """
+        for num, bev in enumerate(self.bevs):
+            # immer vom ersten (also aktuellen) timestep den entsprechenden SOC
+            # wählen
+            SOC = self.optimization_model.SOC[self.current_timestep, num].value
+            bev.enter_soc(SOC)
 
+        for bus in self.buses:
+            # immer vom ersten (also aktuellen) timestep den entsprechenden I
+            # wählen
+            I = self.optimization_model.I[self.current_timestep, bus].value
+            self.results_I[bus].append(I)
+
+
+    # jetzt wo es run_optimization_rolling_horizon gibt, wird diese methode
+    # eigentlich nicht mehr benötigt
     def run_optimization_single_timestep(self, **kwargs):
         self.solver_factory.solve(self.optimization_model, tee=kwargs['tee'])
         #return list(self.optimization_model.I[:, :].value)
@@ -214,10 +240,12 @@ class GridLineOptimizer:
     def run_optimization_rolling_horizon(self, complete_horizon, **kwargs):
         for i in range(complete_horizon):
             print('aktueller Zeitschritt:', i)
+            # Modell entsprechend neu aufbauen (times geht von i bis i+24)
             self.current_timestep = i
             self.times = self._make_times()
             self.optimization_model = self._setup_model()
             self.solver_factory.solve(self.optimization_model, tee=kwargs['tee'])
+            self._store_results()
 
 
     def plot_grid(self):
@@ -258,6 +286,11 @@ class GridLineOptimizer:
             print(f'an Knotenspannung {bev.bus_voltage} V')
 
 
+    def plot_results(self):
+        pass
+
+
+
 
 if __name__ == '__main__':
     t0 = time.time()
@@ -286,7 +319,8 @@ if __name__ == '__main__':
     print('fertig nach', dt, 'sek')
     # test.optimization_model.I.pprint()
     # print(res)
-    test.optimization_model.SOC.pprint()
+    #test.optimization_model.SOC.pprint()
     test.optimization_model.I.pprint()
+    print(test.results_I[0])
 
 
