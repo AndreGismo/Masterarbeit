@@ -2,6 +2,14 @@
 Klasse GridLineOptimizer, die ein Model zur Optimierung der Ladeleistungen von Ladesäulen entlang eines Netzstrahls
 erzeug. Um die Ergebnisse hinterher validieren zu können, ist auch direkt ein pandapower-Netz mit enthalten, mit dem
 man nach der Optimierung die Ergebnisse überprüfen kann.
+
+Da fehlt auch noch das Constarint, das immer ganz unten in der Matrix steht: die Summe aller bis dahin geladenen
+'Energie-Häppchen' muss kleiner (kleiner wird nur aus gewählt, weil es sons abschmiert, wenn das bis dahin nicht
+geladen werden kann) sein als die gwünschte einzuspeicherne Energiemenge soc_target - soc_start
+
+Die Batteriegröße der BEV muss auch noch berücksichtigt werden bei der SOC-Berechnung!
+
+Vielleicht wirkt die Initialisierung der SOCs nicht wie gedacht, weil man das eher als lower bound machen müsste
 """
 
 _pandapower_available = True
@@ -45,12 +53,11 @@ class GridLineOptimizer:
         self.buses = self._make_buses()
         self.lines = self._make_lines()
         self.times = self._make_times()
-        #self.buses_at_times = self._make_buses_at_times()
         if voltages == None:
             self.voltages = self._make_voltages()
         else:
             self.voltages = voltages
-        self.i_max = 160
+        self.i_max = 160   # 160
         self.u_min = 0.9*400/3**0.5
         self.s_trafo = s_trafo_kVA
         self.solver = solver
@@ -85,11 +92,10 @@ class GridLineOptimizer:
     # (das geht allerdings beim Aufruf von get_init_socs in
     # create_model nur beim ersten Zeitschritt gut, weil bei den
     # darauffolgenden Zeitschritten model.times mit neuen 24
-    # Werten überschrieben werden => vielleicht hilfsvariable,
-    # die dafür sorgt, dass immer die aktuelle indexierung
-    # (von current_timestep bis current_timestep+24) passt)
+    # Werten überschrieben werden => einfach länger machen, oder
+    # (vielleicht) besser: als generator)
     def _make_soc_init_array(self):
-        return{bus: [self.bevs[bus].soc_start for _ in range(len(self.times)+24)] for bus in self.buses} # 'hingepfuscht'
+        return{bus: [self.bevs[bus].soc_start for _ in range(len(self.times)+24)] for bus in self.buses} # +24 'hingepfuscht'
 
 
     def _make_buses(self):
@@ -108,17 +114,14 @@ class GridLineOptimizer:
         return {i: 400-i/2 for i in self.buses}
 
 
-    #def _make_buses_at_times(self):
-        #return {i: self.buses for i in self.times}
-
-
     def _make_impedances(self):
         return {i: 0.04 for i in self.lines}
 
 
     def _make_bevs(self):
         for bus in self.bev_buses:
-            bev_bus_voltage = list(self.voltages)[bus]
+            bev_bus_voltage = self.voltages[bus]
+            print('bev bus voltage', bev_bus_voltage)
             bev = BEV(home_bus=bus, e_bat=50, bus_voltage=bev_bus_voltage, resolution=self.resolution)
             print('BEV erzeugt an Bus', bus)
             self.bevs.append(bev)
@@ -141,13 +144,12 @@ class GridLineOptimizer:
 
         # Entscheidungsvariablen erzeugen (dafür erstmal am besten ein array (timesteps x buses)
         # wo überall nur 50 drinsteht (oder was man dem BEV halt als coc_start übergeben hatte))
-        # erzeugen
+        # erzeugen und diese Werte als lower bound ausgeben
         def get_init_socs(model, time, bus):
-            return self.soc_init_array[bus][time]
+            return (self.soc_init_array[bus][time], 100)
 
         model.I = pe.Var(model.times*model.buses, domain=pe.PositiveReals, bounds=(0, 27))
-        model.SOC = pe.Var(model.times*model.buses, domain=pe.PositiveReals, bounds=(0, 100),
-                           initialize=get_init_socs)
+        model.SOC = pe.Var(model.times*model.buses, domain=pe.PositiveReals, bounds=get_init_socs)
 
         # Zielfunktion erzeugen
         def max_power_rule(model):
@@ -301,8 +303,6 @@ class GridLineOptimizer:
             print('---------------------------------')
             print(f'BEV an Bus {bev.home_bus}')
             print(f'mit Batterie {bev.e_bat} kWh')
-            #print(f'und SOC {bev.current_soc} %')
-            # TODO noch dafür sorgen, dass jedes BEV die korrekte Knotenspannung bekommt
             print(f'an Knotenspannung {bev.bus_voltage} V')
 
 
@@ -343,5 +343,22 @@ if __name__ == '__main__':
     test.optimization_model.SOC.pprint()
     print(test.results_I[0])
     print(test.soc_init_array)
+
+    #========== mal die Ergebnisse plotten (auch wenn die noch Käse sind) ===========
+    x = list(range(24))
+    y = {bus: [] for bus in test.buses}
+    for time in test.times:
+        for bus in test.buses:
+            y[bus].append(test.optimization_model.SOC[time, bus].value)
+
+    import pandas as pd
+
+    ydf = pd.DataFrame(y)
+    print(ydf)
+    ydf.index = pd.date_range('2020', periods=len(ydf), freq='60min')
+    ydf.plot()
+    plt.show()
+
+
 
 
