@@ -3,9 +3,8 @@ Klasse GridLineOptimizer, die ein Model zur Optimierung der Ladeleistungen von L
 erzeug. Um die Ergebnisse hinterher validieren zu können, ist auch direkt ein pandapower-Netz mit enthalten, mit dem
 man nach der Optimierung die Ergebnisse überprüfen kann.
 
-Da fehlt auch noch das Constarint, das immer ganz unten in der Matrix steht: die Summe aller bis dahin geladenen
-'Energie-Häppchen' muss kleiner (kleiner wird nur aus gewählt, weil es sons abschmiert, wenn das bis dahin nicht
-geladen werden kann) sein als die gwünschte einzuspeicherne Energiemenge soc_target - soc_start
+Beim letzten Constraint muss noch bei der Summe der Energie-Häppchen nur diejenigen Häppchen summiert werden, die
+vor t_target liegen
 """
 
 _pandapower_available = True
@@ -178,15 +177,18 @@ class GridLineOptimizer:
         # Zeitpunkt nicht mehr im aktuell betrachteten Horizont enthalten ist, dass dann dieser
         # Constraint auch nicht mehr auftaucht (geht vielleicht schon automatisch durch t == t_target)
         def ensure_final_soc_rule(model,  b):
-            t = self.bevs[b].t_target
-            return sum(model.voltages[b] * model.I[t, b] for t in model.times)* self.resolution/60\
-            /1000 / self.bevs[b].e_bat * 100 <= (self.bevs[b].soc_target - self.bevs[b].soc_start)
+            t_end = self.bevs[b].t_target
+            if t_end - self.current_timestep > 0:
+                return sum(model.voltages[b] * model.I[t, b] for t in range(self.current_timestep, t_end))* self.resolution/60\
+                /1000 / self.bevs[b].e_bat * 100 <= (self.bevs[b].soc_target - self.bevs[b].soc_start)
+            else:
+                return pe.Constraint.Skip
 
 
         model.min_voltage = pe.Constraint(model.times, rule=min_voltage_rule)
         model.max_current = pe.Constraint(model.times, rule=max_current_rule)
         model.track_socs = pe.Constraint(model.times*model.buses, rule=track_socs_rule)
-        # mit diesem Constraint kommen die nicht mehr auf ihren soc_target
+        # mit diesem Constraint kommt dasselbe raus, als hätte man nur track_socs aktiv
         model.ensure_final_soc = pe.Constraint(model.buses, rule=ensure_final_soc_rule)
 
         return model
