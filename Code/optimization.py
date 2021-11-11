@@ -70,12 +70,26 @@ class GridLineOptimizer:
         self.bevs = []
         self._make_bevs()
 
+        self.soc_init_array = self._make_soc_init_array()
+
         self.optimization_model = self._setup_model()
         self.grid = self._setup_grid()
 
         # hier kommen dann die Ergebnisse für jeden Knoten zu jedem
         # timstep der Strom rein (die SOCs werden im BEV gespeichert)
         self.results_I = {bus: [] for bus in self.buses}
+
+
+    # erzeugt ein Array (timesteps x buses) wo für jedes BEV
+    # der entsprechende soc_start für jeden Zeitpunkt steht
+    # (das geht allerdings beim Aufruf von get_init_socs in
+    # create_model nur beim ersten Zeitschritt gut, weil bei den
+    # darauffolgenden Zeitschritten model.times mit neuen 24
+    # Werten überschrieben werden => vielleicht hilfsvariable,
+    # die dafür sorgt, dass immer die aktuelle indexierung
+    # (von current_timestep bis current_timestep+24) passt)
+    def _make_soc_init_array(self):
+        return{bus: [self.bevs[bus].soc_start for _ in range(len(self.times)+24)] for bus in self.buses} # 'hingepfuscht'
 
 
     def _make_buses(self):
@@ -125,9 +139,15 @@ class GridLineOptimizer:
         model.u_min = self.u_min
         model.i_max = self.i_max
 
-        # Entscheidungsvariablen erzeugen
+        # Entscheidungsvariablen erzeugen (dafür erstmal am besten ein array (timesteps x buses)
+        # wo überall nur 50 drinsteht (oder was man dem BEV halt als coc_start übergeben hatte))
+        # erzeugen
+        def get_init_socs(model, time, bus):
+            return self.soc_init_array[bus][time]
+
         model.I = pe.Var(model.times*model.buses, domain=pe.PositiveReals, bounds=(0, 27))
-        model.SOC = pe.Var(model.times*model.buses, domain=pe.PositiveReals, bounds=(0, 100))
+        model.SOC = pe.Var(model.times*model.buses, domain=pe.PositiveReals, bounds=(0, 100),
+                           initialize=get_init_socs)
 
         # Zielfunktion erzeugen
         def max_power_rule(model):
@@ -320,7 +340,8 @@ if __name__ == '__main__':
     # test.optimization_model.I.pprint()
     # print(res)
     #test.optimization_model.SOC.pprint()
-    test.optimization_model.I.pprint()
+    test.optimization_model.SOC.pprint()
     print(test.results_I[0])
+    print(test.soc_init_array)
 
 
