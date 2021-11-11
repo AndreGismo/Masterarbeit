@@ -177,24 +177,17 @@ class GridLineOptimizer:
         #TODO: schauen, dass wenn der rolling horizon so weit fortgeschritten ist, dass der Ziel-
         # Zeitpunkt nicht mehr im aktuell betrachteten Horizont enthalten ist, dass dann dieser
         # Constraint auch nicht mehr auftaucht (geht vielleicht schon automatisch durch t == t_target)
-        def ensure_final_soc_rule(model, t, b):
-            # schauen, dass man das immer beim letzten Zeitpunkt
-            if t == self.bevs[b].t_target:
-                print('==============================')
-                print('Constraint geschrieben')
-                return sum(model.voltages[b] * model.I[t, b] for b in model.buses)* self.resolution/60\
-                /1000 / self.bevs[b].e_bat * 100 < (self.bevs[b].soc_target - self.bevs[b].soc_start)
-
-            else:
-                print('==============================')
-                print('Kein Constraint geschrieben')
-                return pe.Constraint.Skip
+        def ensure_final_soc_rule(model,  b):
+            t = self.bevs[b].t_target
+            return sum(model.voltages[b] * model.I[t, b] for t in model.times)* self.resolution/60\
+            /1000 / self.bevs[b].e_bat * 100 <= (self.bevs[b].soc_target - self.bevs[b].soc_start)
 
 
         model.min_voltage = pe.Constraint(model.times, rule=min_voltage_rule)
         model.max_current = pe.Constraint(model.times, rule=max_current_rule)
         model.track_socs = pe.Constraint(model.times*model.buses, rule=track_socs_rule)
-        model.ensure_final_soc = pe.Constraint(model.times*model.buses, rule=ensure_final_soc_rule)
+        # mit diesem Constraint kommen die nicht mehr auf ihren soc_target
+        model.ensure_final_soc = pe.Constraint(model.buses, rule=ensure_final_soc_rule)
 
         return model
 
@@ -283,8 +276,6 @@ class GridLineOptimizer:
             self.optimization_model = self._setup_model()
             self.solver_factory.solve(self.optimization_model, tee=kwargs['tee'])
             self._store_results()
-            #if i == 1:
-            self.optimization_model.ensure_final_soc.pprint()
 
 
     def plot_grid(self):
