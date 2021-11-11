@@ -6,10 +6,6 @@ man nach der Optimierung die Ergebnisse überprüfen kann.
 Da fehlt auch noch das Constarint, das immer ganz unten in der Matrix steht: die Summe aller bis dahin geladenen
 'Energie-Häppchen' muss kleiner (kleiner wird nur aus gewählt, weil es sons abschmiert, wenn das bis dahin nicht
 geladen werden kann) sein als die gwünschte einzuspeicherne Energiemenge soc_target - soc_start
-
-Die Batteriegröße der BEV muss auch noch berücksichtigt werden bei der SOC-Berechnung!
-
-Vielleicht wirkt die Initialisierung der SOCs nicht wie gedacht, weil man das eher als lower bound machen müsste
 """
 
 _pandapower_available = True
@@ -171,7 +167,7 @@ class GridLineOptimizer:
         def track_socs_rule(model, t, b):
             if t < self.current_timestep + 23:
                 return (model.SOC[t, b] + model.I[t, b] * model.voltages[b] * self.resolution/60 / 1000
-                        - model.SOC[t+1, b]) == 0
+                        / self.bevs[b].e_bat*100 - model.SOC[t+1, b]) == 0
 
             else:
                 return pe.Constraint.Skip
@@ -314,7 +310,7 @@ class GridLineOptimizer:
 
 if __name__ == '__main__':
     t0 = time.time()
-    test = GridLineOptimizer(6, bev_buses=list(range(6)), resolution=60)
+    test = GridLineOptimizer(15, bev_buses=list(range(15)), resolution=60)
     print(test.bevs)
     test.list_bevs()
 
