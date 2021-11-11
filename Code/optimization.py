@@ -81,9 +81,9 @@ class GridLineOptimizer:
     def _make_lines(self):
         return list(range(self.number_buses))
 
-
+    # TODO: dafür sorgen, dass die Spanne von times gemäß der Auflösung und des horizonts angepasst wird
     def _make_times(self):
-        return list(range(self.current_timestep, self.current_timestep+96))
+        return list(range(self.current_timestep, self.current_timestep+24))
 
 
     def _make_voltages(self):
@@ -143,13 +143,17 @@ class GridLineOptimizer:
 
 
         def track_socs_rule(model, t, b):
-            return (model.SOC[t, b] + model.I[t, b] * model.voltages[b] * self.resolution/60
-                    - model.SOC[t+1, b]) == 0
+            if t < self.current_timestep + 23:
+                return (model.SOC[t, b] + model.I[t, b] * model.voltages[b] * self.resolution/60 / 1000
+                        - model.SOC[t+1, b]) == 0
+
+            else:
+                return pe.Constraint.Skip
 
 
         model.min_voltage = pe.Constraint(model.times, rule=min_voltage_rule)
         model.max_current = pe.Constraint(model.times, rule=max_current_rule)
-        #model.track_socs = pe.Constraint(model.times*model.buses, rule=track_socs_rule)
+        model.track_socs = pe.Constraint(model.times*model.buses, rule=track_socs_rule)
 
         return model
 
@@ -198,9 +202,13 @@ class GridLineOptimizer:
         self.optimization_model.max_current.pprint()
 
 
+    def display_track_socs_constraint(self):
+        self.optimization_model.track_socs.pprint()
+
+
     def run_optimization_single_timestep(self, **kwargs):
         self.solver_factory.solve(self.optimization_model, tee=kwargs['tee'])
-        return list(self.optimization_model.I[:, :].value)
+        #return list(self.optimization_model.I[:, :].value)
 
 
     def run_optimization_rolling_horizon(self, complete_horizon, **kwargs):
@@ -253,7 +261,7 @@ class GridLineOptimizer:
 
 if __name__ == '__main__':
     t0 = time.time()
-    test = GridLineOptimizer(20, bev_buses=list(range(6)), resolution=15)
+    test = GridLineOptimizer(6, bev_buses=list(range(6)), resolution=60)
     print(test.bevs)
     test.list_bevs()
 
@@ -265,18 +273,20 @@ if __name__ == '__main__':
     test.display_target_function()
     test.display_min_voltage_constraint()
     test.display_max_current_constraint()
-    # res = test.run_optimization_single_timestep(tee=True)
+    test.display_track_socs_constraint()
+    #res = test.run_optimization_single_timestep(tee=True)
     # #for i, val in enumerate(res):
     #     #print(f'Strom am Knoten {i}: {val}')
     # #
-    dt = time.time() - t0
-    print('Laufzeit', dt)
+    #dt = time.time() - t0
+    #print('Laufzeit', dt)
     print('starte rolling horizon: \n')
-    test.run_optimization_rolling_horizon(96, tee=False)
+    test.run_optimization_rolling_horizon(24, tee=False)
     dt = time.time() - t0
     print('fertig nach', dt, 'sek')
     # test.optimization_model.I.pprint()
     # print(res)
-    test.optimization_model.times.pprint()
+    test.optimization_model.SOC.pprint()
+    test.optimization_model.I.pprint()
 
 
