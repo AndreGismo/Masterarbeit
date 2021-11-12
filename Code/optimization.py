@@ -3,8 +3,23 @@ Klasse GridLineOptimizer, die ein Model zur Optimierung der Ladeleistungen von L
 erzeug. Um die Ergebnisse hinterher validieren zu können, ist auch direkt ein pandapower-Netz mit enthalten, mit dem
 man nach der Optimierung die Ergebnisse überprüfen kann.
 
-Beim letzten Constraint muss noch bei der Summe der Energie-Häppchen nur diejenigen Häppchen summiert werden, die
-vor t_target liegen
+Eventuell muss die Zielfunktion angepasst werden, dass dort wirklich immer nur die Is der ersten 24 Sunden auftauchen
+=> noch fixes Set im model definieren und dann die Zielfunktion darin indexieren
+
+Und bei der rechten Seite vom constraint ensure_final_soc muss bei größeren timesteps auch nur noch die Differenz
+von soc_target - soc(current_timestep) stehen
+
+Eventuell macht die rolling horizon Betrachtung hier auch gar keinen Sinn? Weil sich ja noch keine Werte im Lauf der
+Zeit mal zufällig ändern (wie das in der Realität der Fall wäre). Vielleicht genügt ja ein Durchlauf mit dem 24std
+Horizont -- oder der Fehler liegt einfach in der Logik von store_results
+
+charger_loc werden auch noch nicht verwendet, sondern einfach immer angenommen, dass alle buses belegt sind
+
+die SOCs sind irgendwie nicht richtig mit den Is verknüpft: obwohl laut Is auf dem letzten Knoten überhaupt kein
+Strom mehr fließt, nimmt der SOC trotzdem zu
+
+Die SOCs müssen vielleicht auch noch in die Zielfunktion einfließen (sowas in der Art: SOC[t, b] - SOC[t-1, b],
+dass die SOCs einen Anreiz haben, möglichst schnell geladen zu werden)
 """
 
 _pandapower_available = True
@@ -52,8 +67,8 @@ class GridLineOptimizer:
             self.voltages = self._make_voltages()
         else:
             self.voltages = voltages
-        self.i_max = 80   # 160
-        self.u_min = 0.9*400/3**0.5
+        self.i_max = 120   # 160
+        self.u_min = 0.9*400
         self.s_trafo = s_trafo_kVA
         self.solver = solver
         self.solver_factory = pe.SolverFactory(self.solver)
@@ -110,15 +125,15 @@ class GridLineOptimizer:
 
 
     def _make_impedances(self):
-        return {i: 0.04 for i in self.lines}
+        return {i: 0.04 for i in self.lines}  # 0.04
 
 
     def _make_bevs(self):
         for bus in self.bev_buses:
             bev_bus_voltage = self.voltages[bus]
-            print('bev bus voltage', bev_bus_voltage)
-            bev = BEV(home_bus=bus, e_bat=50, bus_voltage=bev_bus_voltage, resolution=self.resolution)
-            print('BEV erzeugt an Bus', bus)
+            start_soc = bus * 5 + 5
+            bev = BEV(home_bus=bus, e_bat=50, bus_voltage=bev_bus_voltage, resolution=self.resolution,
+                      soc_start=start_soc)
             self.bevs.append(bev)
 
 
@@ -180,7 +195,7 @@ class GridLineOptimizer:
             t_end = self.bevs[b].t_target
             if t_end - self.current_timestep > 0:
                 return sum(model.voltages[b] * model.I[t, b] for t in range(self.current_timestep, t_end))* self.resolution/60\
-                /1000 / self.bevs[b].e_bat * 100 <= (self.bevs[b].soc_target - self.bevs[b].soc_start)
+                /1000 / self.bevs[b].e_bat * 100 <= (self.bevs[b].soc_target - self.bevs[b].soc_list[self.current_timestep-1])#- self.bevs[b].soc_start)
             else:
                 return pe.Constraint.Skip
 
@@ -241,6 +256,11 @@ class GridLineOptimizer:
     def display_track_socs_constraint(self):
         self.optimization_model.track_socs.pprint()
 
+
+    def display_ensure_final_soc_constraint(self):
+        self.optimization_model.ensure_final_soc.pprint()
+
+
     # nach jedem Optimierungsdurchlauf die Ergebnisse aus dem Model und
     # die SOCs in den BEVs speichern, I hier irgendwo...
     def _store_results(self):
@@ -278,6 +298,10 @@ class GridLineOptimizer:
             self.optimization_model = self._setup_model()
             self.solver_factory.solve(self.optimization_model, tee=kwargs['tee'])
             self._store_results()
+            if i in [11,12,13]:
+                print('------------------------------')
+                print('Zeitpunkt', i)
+                self.optimization_model.ensure_final_soc.pprint()
 
 
     def plot_grid(self):
@@ -325,8 +349,6 @@ class GridLineOptimizer:
 if __name__ == '__main__':
     t0 = time.time()
     test = GridLineOptimizer(6, bev_buses=list(range(6)), resolution=60)
-    print(test.bevs)
-    test.list_bevs()
 
 
     # print(test.buses)
@@ -337,37 +359,62 @@ if __name__ == '__main__':
     test.display_min_voltage_constraint()
     test.display_max_current_constraint()
     #test.display_track_socs_constraint()
-    #res = test.run_optimization_single_timestep(tee=True)
+    res = test.run_optimization_single_timestep(tee=True)
     # #for i, val in enumerate(res):
     #     #print(f'Strom am Knoten {i}: {val}')
     # #
     #dt = time.time() - t0
     #print('Laufzeit', dt)
-    print('starte rolling horizon: \n')
-    test.run_optimization_rolling_horizon(24, tee=False)
+    #print('starte rolling horizon: \n')
+    #test.run_optimization_rolling_horizon(24, tee=False)
     dt = time.time() - t0
     print('fertig nach', dt, 'sek')
     # test.optimization_model.I.pprint()
     # print(res)
-    #test.optimization_model.SOC.pprint()
     test.optimization_model.SOC.pprint()
-    print(test.results_I[0])
+
     print(test.soc_init_array)
 
     #========== mal die Ergebnisse plotten (auch wenn die noch Käse sind) ===========
-    x = list(range(24))
-    y = {bus: [] for bus in test.buses}
+    socs = {bus: [] for bus in test.buses}
     for time in test.times:
         for bus in test.buses:
-            y[bus].append(test.optimization_model.SOC[time, bus].value)
+            socs[bus].append(test.optimization_model.SOC[time, bus].value)
+
+    Is = {bus: [] for bus in test.buses}
+    for tie in test.times:
+        for bus in test.buses:
+            Is[bus].append(test.optimization_model.I[time, bus].value)
+
 
     import pandas as pd
 
-    ydf = pd.DataFrame(y)
-    print(ydf)
-    ydf.index = pd.date_range('2020', periods=len(ydf), freq='60min')
-    ydf.plot()
+    socs_df = pd.DataFrame(socs)
+    Is_df = pd.DataFrame(Is)
+
+    print(socs_df)
+    socs_df.index = pd.date_range('2020', periods=len(socs_df), freq='60min')
+    Is_df.index = pd.date_range('2020', periods=len(Is_df), freq='60min')
+    fig, ax = plt.subplots(2, 1, figsize=(15,15), sharex=True)
+    for column in socs_df.columns:
+        ax[0].plot(socs_df.index, socs_df[column], marker='o', label=f'SOC der Batterie am Knoten {column}')
+    ax[0].legend()
+    ax[0].grid()
+    ax[0].set_ylabel('SOC [%]')
+    ax[0].set_title('SOC über der Zeit - Ergebnisse der Optimierung')
+
+    for column in Is_df.columns:
+        ax[1].plot(Is_df.index, Is_df[column], marker='o', label=f'Strom in die Batterie am Knoten {column}')
+    ax[1].legend()
+    ax[1].grid()
+    ax[1].set_ylabel('Strom [A]')
+    ax[1].set_xlabel('Zeitpunkt [MM-TT hh]')
+    ax[1].set_title('Strom über der Zeit - Ergebnisse der Optimierung')
+
     plt.show()
+
+    test.display_track_socs_constraint()
+    test.display_ensure_final_soc_constraint()
 
 
 
