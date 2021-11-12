@@ -6,17 +6,11 @@ man nach der Optimierung die Ergebnisse überprüfen kann.
 Eventuell muss die Zielfunktion angepasst werden, dass dort wirklich immer nur die Is der ersten 24 Sunden auftauchen
 => noch fixes Set im model definieren und dann die Zielfunktion darin indexieren
 
-Und bei der rechten Seite vom constraint ensure_final_soc muss bei größeren timesteps auch nur noch die Differenz
-von soc_target - soc(current_timestep) stehen
-
 Eventuell macht die rolling horizon Betrachtung hier auch gar keinen Sinn? Weil sich ja noch keine Werte im Lauf der
 Zeit mal zufällig ändern (wie das in der Realität der Fall wäre). Vielleicht genügt ja ein Durchlauf mit dem 24std
 Horizont -- oder der Fehler liegt einfach in der Logik von store_results
 
 charger_loc werden auch noch nicht verwendet, sondern einfach immer angenommen, dass alle buses belegt sind
-
-die SOCs sind irgendwie nicht richtig mit den Is verknüpft: obwohl laut Is auf dem letzten Knoten überhaupt kein
-Strom mehr fließt, nimmt der SOC trotzdem zu
 
 Die SOCs müssen vielleicht auch noch in die Zielfunktion einfließen (sowas in der Art: SOC[t, b] - SOC[t-1, b],
 dass die SOCs einen Anreiz haben, möglichst schnell geladen zu werden)
@@ -24,8 +18,18 @@ dass die SOCs einen Anreiz haben, möglichst schnell geladen zu werden)
 
 _pandapower_available = True
 _networkx_available = True
+_pandas_available = True
+_matplotlib_available = True
 
 import pyomo.environ as pe
+
+try:
+    import pandas as pd
+
+except ModuleNotFoundError:
+    print('\nWARNING: module pandas not available, some features are',
+          'only available with pandas\n')
+    _pandas_available = False
 
 try:
     import pandapower as pp
@@ -36,7 +40,13 @@ except ModuleNotFoundError:
           'only available with pandapower\n')
     _pandapower_available = False
 
-import matplotlib.pyplot as plt
+try:
+    import matplotlib.pyplot as plt
+
+except ModuleNotFoundError:
+    print('\nWARNING: module matplotlib not available, some features are',
+          'only available with matplotlib\n')
+    _matplotlib_available = False
 
 try:
     import networkx as nx
@@ -46,7 +56,6 @@ except ModuleNotFoundError:
           'only available with networkx\n')
     _networkx_available = False
 
-
 import time
 from battery_electric_vehicle import BatteryElectricVehicle as BEV
 
@@ -55,6 +64,8 @@ from battery_electric_vehicle import BatteryElectricVehicle as BEV
 class GridLineOptimizer:
     global _pandapwer_available
     global _networkx_available
+    global _pandas_available
+    global _matplotlib_available
 
     def __init__(self, number_buses, bev_buses, charger_locs=None, voltages=None, impedances=None,
                  resolution=60, s_trafo_kVA=100, solver='glpk'):
@@ -67,7 +78,7 @@ class GridLineOptimizer:
             self.voltages = self._make_voltages()
         else:
             self.voltages = voltages
-        self.i_max = 120   # 160
+        self.i_max = 50   # 160
         self.u_min = 0.9*400
         self.s_trafo = s_trafo_kVA
         self.solver = solver
@@ -341,16 +352,49 @@ class GridLineOptimizer:
 
 
     def plot_results(self):
-        pass
+        if not _pandas_available or not _matplotlib_available:
+            print('\nWARNING: unable to plot results\n')
 
+        else:
+            # erstmal die ergebnisse aus dem Modell abfragen
+            SOCs = {bus: [] for bus in self.buses}
+            for time in self.times:
+                for bus in self.buses:
+                    SOCs[bus].append(self.optimization_model.SOC[time, bus].value)
+
+            Is = {bus: [] for bus in self.buses}
+            for time in self.times:
+                for bus in self.buses:
+                    Is[bus].append(test.optimization_model.I[time, bus].value)
+
+            SOCs_df = pd.DataFrame(SOCs)
+            SOCs_df.index = pd.date_range(start='2021', periods=len(SOCs_df), freq=str(self.resolution)+'min')
+            Is_df = pd.DataFrame(Is)
+            Is_df.index = pd.date_range(start='2021', periods=len(SOCs_df), freq=str(self.resolution) + 'min')
+
+            fig, ax = plt.subplots(2, 1, figsize=(15, 15), sharex=True)
+            for column in SOCs_df.columns:
+                ax[0].plot(SOCs_df.index, SOCs_df[column], marker='o', label=f'SOC der Batterie am Knoten {column}')
+            ax[0].legend()
+            ax[0].grid()
+            ax[0].set_ylabel('SOC [%]')
+            ax[0].set_title('SOC über der Zeit - Ergebnisse der Optimierung')
+
+            for column in Is_df.columns:
+                ax[1].plot(Is_df.index, Is_df[column], marker='o', label=f'Strom in die Batterie am Knoten {column}')
+            ax[1].legend()
+            ax[1].grid()
+            ax[1].set_ylabel('Strom [A]')
+            ax[1].set_xlabel('Zeitpunkt [MM-TT hh]')
+            ax[1].set_title('Strom über der Zeit - Ergebnisse der Optimierung')
+
+            plt.show()
 
 
 
 if __name__ == '__main__':
     t0 = time.time()
     test = GridLineOptimizer(6, bev_buses=list(range(6)), resolution=60)
-
-
     # print(test.buses)
     # print(test.lines)
     # print(test.impedances)
@@ -375,47 +419,7 @@ if __name__ == '__main__':
 
     print(test.soc_init_array)
 
-    #========== mal die Ergebnisse plotten (auch wenn die noch Käse sind) ===========
-    socs = {bus: [] for bus in test.buses}
-    for time in test.times:
-        for bus in test.buses:
-            socs[bus].append(test.optimization_model.SOC[time, bus].value)
-
-    Is = {bus: [] for bus in test.buses}
-    for tie in test.times:
-        for bus in test.buses:
-            Is[bus].append(test.optimization_model.I[time, bus].value)
-
-
-    import pandas as pd
-
-    socs_df = pd.DataFrame(socs)
-    Is_df = pd.DataFrame(Is)
-
-    print(socs_df)
-    socs_df.index = pd.date_range('2020', periods=len(socs_df), freq='60min')
-    Is_df.index = pd.date_range('2020', periods=len(Is_df), freq='60min')
-    fig, ax = plt.subplots(2, 1, figsize=(15,15), sharex=True)
-    for column in socs_df.columns:
-        ax[0].plot(socs_df.index, socs_df[column], marker='o', label=f'SOC der Batterie am Knoten {column}')
-    ax[0].legend()
-    ax[0].grid()
-    ax[0].set_ylabel('SOC [%]')
-    ax[0].set_title('SOC über der Zeit - Ergebnisse der Optimierung')
-
-    for column in Is_df.columns:
-        ax[1].plot(Is_df.index, Is_df[column], marker='o', label=f'Strom in die Batterie am Knoten {column}')
-    ax[1].legend()
-    ax[1].grid()
-    ax[1].set_ylabel('Strom [A]')
-    ax[1].set_xlabel('Zeitpunkt [MM-TT hh]')
-    ax[1].set_title('Strom über der Zeit - Ergebnisse der Optimierung')
-
-    plt.show()
-
+    test.plot_results()
     test.display_track_socs_constraint()
     test.display_ensure_final_soc_constraint()
-
-
-
 
