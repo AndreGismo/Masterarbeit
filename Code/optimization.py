@@ -70,6 +70,7 @@ class GridLineOptimizer:
     def __init__(self, number_buses, bev_buses, charger_locs=None, voltages=None, impedances=None,
                  resolution=60, s_trafo_kVA=100, solver='glpk'):
         self.current_timestep = 0
+        self.resolution = resolution
         self.number_buses = number_buses
         self.buses = self._make_buses()
         self.lines = self._make_lines()
@@ -78,12 +79,11 @@ class GridLineOptimizer:
             self.voltages = self._make_voltages()
         else:
             self.voltages = voltages
-        self.i_max = 50   # 160
+        self.i_max = 160   # 160
         self.u_min = 0.9*400
         self.s_trafo = s_trafo_kVA
         self.solver = solver
         self.solver_factory = pe.SolverFactory(self.solver)
-        self.resolution = resolution
         if charger_locs == None:
             self.charger_locs = self.buses  # vielleicht lieber als dict: {1: True, 2: False...}?
         else:
@@ -126,9 +126,9 @@ class GridLineOptimizer:
     def _make_lines(self):
         return list(range(self.number_buses))
 
-    # TODO: dafür sorgen, dass die Spanne von times gemäß der Auflösung und des horizonts angepasst wird
+
     def _make_times(self):
-        return list(range(self.current_timestep, self.current_timestep+24))
+        return list(range(self.current_timestep, self.current_timestep+24*int(60/self.resolution)))
 
 
     def _make_voltages(self):
@@ -136,7 +136,7 @@ class GridLineOptimizer:
 
 
     def _make_impedances(self):
-        return {i: 0.04 for i in self.lines}  # 0.04
+        return {i: 0.3 for i in self.lines}  # 0.04
 
 
     def _make_bevs(self):
@@ -192,7 +192,7 @@ class GridLineOptimizer:
         def track_socs_rule(model, t, b):
             # schauen, dass man immer nur bis zum vorletzten timestep geht (weil es
             # sonst kein t+1 mehr geben würde beim letzten timestep)
-            if t < self.current_timestep + 23:
+            if t < self.current_timestep + 24*60/self.resolution-1:#23:
                 return (model.SOC[t, b] + model.I[t, b] * model.voltages[b] * self.resolution/60 / 1000
                         / self.bevs[b].e_bat*100 - model.SOC[t+1, b]) == 0
 
@@ -394,7 +394,7 @@ class GridLineOptimizer:
 
 if __name__ == '__main__':
     t0 = time.time()
-    test = GridLineOptimizer(6, bev_buses=list(range(6)), resolution=60)
+    test = GridLineOptimizer(6, bev_buses=list(range(6)), resolution=15)
     # print(test.buses)
     # print(test.lines)
     # print(test.impedances)
@@ -402,24 +402,16 @@ if __name__ == '__main__':
     test.display_target_function()
     test.display_min_voltage_constraint()
     test.display_max_current_constraint()
-    #test.display_track_socs_constraint()
+    test.display_track_socs_constraint()
     res = test.run_optimization_single_timestep(tee=True)
-    # #for i, val in enumerate(res):
-    #     #print(f'Strom am Knoten {i}: {val}')
-    # #
-    #dt = time.time() - t0
-    #print('Laufzeit', dt)
-    #print('starte rolling horizon: \n')
     #test.run_optimization_rolling_horizon(24, tee=False)
     dt = time.time() - t0
     print('fertig nach', dt, 'sek')
     # test.optimization_model.I.pprint()
     # print(res)
     test.optimization_model.SOC.pprint()
-
-    print(test.soc_init_array)
+    print(test.results_I)
 
     test.plot_results()
-    test.display_track_socs_constraint()
     test.display_ensure_final_soc_constraint()
 

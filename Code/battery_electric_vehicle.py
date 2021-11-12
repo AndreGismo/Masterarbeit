@@ -5,7 +5,7 @@ wie groß die Batterie ist.
 """
 
 class BatteryElectricVehicle:
-    def __init__(self, home_bus, e_bat, bus_voltage, soc_start=50, soc_target=100, t_target=15, resolution=None):
+    def __init__(self, home_bus, e_bat, bus_voltage, soc_start=50, soc_target=100, t_target=20, resolution=None):
         self.home_bus = home_bus
         self.e_bat = e_bat
         self.bus_voltage = bus_voltage
