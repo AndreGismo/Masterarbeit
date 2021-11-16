@@ -116,7 +116,13 @@ class GridLineOptimizer:
     # Werten überschrieben werden => einfach länger machen, oder
     # (vielleicht) besser: als generator)
     def _make_soc_init_array(self):
-        return{bus: [self.bevs[bus].soc_start for _ in range(len(self.times)+24)] for bus in self.buses} # +24 'hingepfuscht'
+        soc_init_array = {bus: [self.bevs[bus].soc_start for _ in range(len(self.times)+24)] for bus in self.buses}
+        for bus in self.buses:
+            # dafür sorgen, dass an demjenigen Zeitpunkt, wo die geladen sein wollen t_target
+            # der gewünschte Ladestand soc_target dasteht
+            soc_init_array[bus][self.bevs[bus].t_target] = self.bevs[bus].soc_target
+        return soc_init_array
+        # +24 'hingepfuscht', um bei weiterwanderndem Horizontt auch noch spätere Werte zu haben
 
 
     def _make_buses(self):
@@ -175,6 +181,7 @@ class GridLineOptimizer:
         # Zielfunktion erzeugen
         def max_power_rule(model):
             return sum(sum(model.voltages[i]*model.I[j, i] for i in model.buses) for j in model.times)
+            #return sum(sum(model.SOC[t+1, b] - model.SOC[t, b] for b in model.buses) for t in model.times[0:-2])
 
         model.max_power = pe.Objective(rule=max_power_rule, sense=pe.maximize)
 
@@ -394,7 +401,7 @@ class GridLineOptimizer:
 
 if __name__ == '__main__':
     t0 = time.time()
-    test = GridLineOptimizer(6, bev_buses=list(range(6)), resolution=15)
+    test = GridLineOptimizer(6, bev_buses=list(range(6)), resolution=60)
     # print(test.buses)
     # print(test.lines)
     # print(test.impedances)
