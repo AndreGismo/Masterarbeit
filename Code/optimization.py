@@ -3,15 +3,33 @@ Klasse GridLineOptimizer, die ein Model zur Optimierung der Ladeleistungen von L
 erzeug. Um die Ergebnisse hinterher validieren zu können, ist auch direkt ein pandapower-Netz mit enthalten, mit dem
 man nach der Optimierung die Ergebnisse überprüfen kann.
 
-Da fehlt auch noch das Constarint, das immer ganz unten in der Matrix steht: die Summe aller bis dahin geladenen
-'Energie-Häppchen' muss kleiner (kleiner wird nur aus gewählt, weil es sons abschmiert, wenn das bis dahin nicht
-geladen werden kann) sein als die gwünschte einzuspeicherne Energiemenge soc_target - soc_start
+Eventuell muss die Zielfunktion angepasst werden, dass dort wirklich immer nur die Is der ersten 24 Sunden auftauchen
+=> noch fixes Set im model definieren und dann die Zielfunktion darin indexieren
+
+Eventuell macht die rolling horizon Betrachtung hier auch gar keinen Sinn? Weil sich ja noch keine Werte im Lauf der
+Zeit mal zufällig ändern (wie das in der Realität der Fall wäre). Vielleicht genügt ja ein Durchlauf mit dem 24std
+Horizont -- oder der Fehler liegt einfach in der Logik von store_results
+
+charger_loc werden auch noch nicht verwendet, sondern einfach immer angenommen, dass alle buses belegt sind
+
+Die SOCs müssen vielleicht auch noch in die Zielfunktion einfließen (sowas in der Art: SOC[t, b] - SOC[t-1, b],
+dass die SOCs einen Anreiz haben, möglichst schnell geladen zu werden)
 """
 
 _pandapower_available = True
 _networkx_available = True
+_pandas_available = True
+_matplotlib_available = True
 
 import pyomo.environ as pe
+
+try:
+    import pandas as pd
+
+except ModuleNotFoundError:
+    print('\nWARNING: module pandas not available, some features are',
+          'only available with pandas\n')
+    _pandas_available = False
 
 try:
     import pandapower as pp
@@ -22,7 +40,13 @@ except ModuleNotFoundError:
           'only available with pandapower\n')
     _pandapower_available = False
 
-import matplotlib.pyplot as plt
+try:
+    import matplotlib.pyplot as plt
+
+except ModuleNotFoundError:
+    print('\nWARNING: module matplotlib not available, some features are',
+          'only available with matplotlib\n')
+    _matplotlib_available = False
 
 try:
     import networkx as nx
@@ -32,7 +56,6 @@ except ModuleNotFoundError:
           'only available with networkx\n')
     _networkx_available = False
 
-
 import time
 from battery_electric_vehicle import BatteryElectricVehicle as BEV
 
@@ -41,10 +64,13 @@ from battery_electric_vehicle import BatteryElectricVehicle as BEV
 class GridLineOptimizer:
     global _pandapwer_available
     global _networkx_available
+    global _pandas_available
+    global _matplotlib_available
 
     def __init__(self, number_buses, bev_buses, charger_locs=None, voltages=None, impedances=None,
                  resolution=60, s_trafo_kVA=100, solver='glpk'):
         self.current_timestep = 0
+        self.resolution = resolution
         self.number_buses = number_buses
         self.buses = self._make_buses()
         self.lines = self._make_lines()
@@ -53,12 +79,11 @@ class GridLineOptimizer:
             self.voltages = self._make_voltages()
         else:
             self.voltages = voltages
-        self.i_max = 80   # 160
-        self.u_min = 0.9*400/3**0.5
+        self.i_max = 160   # 160
+        self.u_min = 0.9*400
         self.s_trafo = s_trafo_kVA
         self.solver = solver
         self.solver_factory = pe.SolverFactory(self.solver)
-        self.resolution = resolution
         if charger_locs == None:
             self.charger_locs = self.buses  # vielleicht lieber als dict: {1: True, 2: False...}?
         else:
@@ -91,7 +116,13 @@ class GridLineOptimizer:
     # Werten überschrieben werden => einfach länger machen, oder
     # (vielleicht) besser: als generator)
     def _make_soc_init_array(self):
-        return{bus: [self.bevs[bus].soc_start for _ in range(len(self.times)+24)] for bus in self.buses} # +24 'hingepfuscht'
+        soc_init_array = {bus: [self.bevs[bus].soc_start for _ in range(len(self.times)+24)] for bus in self.buses}
+        for bus in self.buses:
+            # dafür sorgen, dass an demjenigen Zeitpunkt, wo die geladen sein wollen t_target
+            # der gewünschte Ladestand soc_target dasteht
+            soc_init_array[bus][self.bevs[bus].t_target] = self.bevs[bus].soc_target
+        return soc_init_array
+        # +24 'hingepfuscht', um bei weiterwanderndem Horizontt auch noch spätere Werte zu haben
 
 
     def _make_buses(self):
@@ -101,9 +132,9 @@ class GridLineOptimizer:
     def _make_lines(self):
         return list(range(self.number_buses))
 
-    # TODO: dafür sorgen, dass die Spanne von times gemäß der Auflösung und des horizonts angepasst wird
+
     def _make_times(self):
-        return list(range(self.current_timestep, self.current_timestep+24))
+        return list(range(self.current_timestep, self.current_timestep+24*int(60/self.resolution)))
 
 
     def _make_voltages(self):
@@ -111,15 +142,15 @@ class GridLineOptimizer:
 
 
     def _make_impedances(self):
-        return {i: 0.04 for i in self.lines}
+        return {i: 0.3 for i in self.lines}  # 0.04
 
 
     def _make_bevs(self):
         for bus in self.bev_buses:
             bev_bus_voltage = self.voltages[bus]
-            print('bev bus voltage', bev_bus_voltage)
-            bev = BEV(home_bus=bus, e_bat=50, bus_voltage=bev_bus_voltage, resolution=self.resolution)
-            print('BEV erzeugt an Bus', bus)
+            start_soc = bus * 5 + 5
+            bev = BEV(home_bus=bus, e_bat=50, bus_voltage=bev_bus_voltage, resolution=self.resolution,
+                      soc_start=start_soc)
             self.bevs.append(bev)
 
 
@@ -150,6 +181,7 @@ class GridLineOptimizer:
         # Zielfunktion erzeugen
         def max_power_rule(model):
             return sum(sum(model.voltages[i]*model.I[j, i] for i in model.buses) for j in model.times)
+            #return sum(sum(model.SOC[t+1, b] - model.SOC[t, b] for b in model.buses) for t in model.times[0:-2])
 
         model.max_power = pe.Objective(rule=max_power_rule, sense=pe.maximize)
 
@@ -167,7 +199,7 @@ class GridLineOptimizer:
         def track_socs_rule(model, t, b):
             # schauen, dass man immer nur bis zum vorletzten timestep geht (weil es
             # sonst kein t+1 mehr geben würde beim letzten timestep)
-            if t < self.current_timestep + 23:
+            if t < self.current_timestep + 24*60/self.resolution-1:#23:
                 return (model.SOC[t, b] + model.I[t, b] * model.voltages[b] * self.resolution/60 / 1000
                         / self.bevs[b].e_bat*100 - model.SOC[t+1, b]) == 0
 
@@ -177,24 +209,20 @@ class GridLineOptimizer:
         #TODO: schauen, dass wenn der rolling horizon so weit fortgeschritten ist, dass der Ziel-
         # Zeitpunkt nicht mehr im aktuell betrachteten Horizont enthalten ist, dass dann dieser
         # Constraint auch nicht mehr auftaucht (geht vielleicht schon automatisch durch t == t_target)
-        def ensure_final_soc_rule(model, t, b):
-            # schauen, dass man das immer beim letzten Zeitpunkt
-            if t == self.bevs[b].t_target:
-                print('==============================')
-                print('Constraint geschrieben')
-                return sum(model.voltages[b] * model.I[t, b] for b in model.buses)* self.resolution/60\
-                /1000 / self.bevs[b].e_bat * 100 < (self.bevs[b].soc_target - self.bevs[b].soc_start)
-
+        def ensure_final_soc_rule(model,  b):
+            t_end = self.bevs[b].t_target
+            if t_end - self.current_timestep > 0:
+                return sum(model.voltages[b] * model.I[t, b] for t in range(self.current_timestep, t_end))* self.resolution/60\
+                /1000 / self.bevs[b].e_bat * 100 <= (self.bevs[b].soc_target - self.bevs[b].soc_list[self.current_timestep-1])#- self.bevs[b].soc_start)
             else:
-                print('==============================')
-                print('Kein Constraint geschrieben')
                 return pe.Constraint.Skip
 
 
         model.min_voltage = pe.Constraint(model.times, rule=min_voltage_rule)
         model.max_current = pe.Constraint(model.times, rule=max_current_rule)
         model.track_socs = pe.Constraint(model.times*model.buses, rule=track_socs_rule)
-        model.ensure_final_soc = pe.Constraint(model.times*model.buses, rule=ensure_final_soc_rule)
+        # mit diesem Constraint kommt dasselbe raus, als hätte man nur track_socs aktiv
+        model.ensure_final_soc = pe.Constraint(model.buses, rule=ensure_final_soc_rule)
 
         return model
 
@@ -246,6 +274,11 @@ class GridLineOptimizer:
     def display_track_socs_constraint(self):
         self.optimization_model.track_socs.pprint()
 
+
+    def display_ensure_final_soc_constraint(self):
+        self.optimization_model.ensure_final_soc.pprint()
+
+
     # nach jedem Optimierungsdurchlauf die Ergebnisse aus dem Model und
     # die SOCs in den BEVs speichern, I hier irgendwo...
     def _store_results(self):
@@ -283,8 +316,10 @@ class GridLineOptimizer:
             self.optimization_model = self._setup_model()
             self.solver_factory.solve(self.optimization_model, tee=kwargs['tee'])
             self._store_results()
-            #if i == 1:
-            self.optimization_model.ensure_final_soc.pprint()
+            if i in [11,12,13]:
+                print('------------------------------')
+                print('Zeitpunkt', i)
+                self.optimization_model.ensure_final_soc.pprint()
 
 
     def plot_grid(self):
@@ -324,18 +359,49 @@ class GridLineOptimizer:
 
 
     def plot_results(self):
-        pass
+        if not _pandas_available or not _matplotlib_available:
+            print('\nWARNING: unable to plot results\n')
 
+        else:
+            # erstmal die ergebnisse aus dem Modell abfragen
+            SOCs = {bus: [] for bus in self.buses}
+            for time in self.times:
+                for bus in self.buses:
+                    SOCs[bus].append(self.optimization_model.SOC[time, bus].value)
+
+            Is = {bus: [] for bus in self.buses}
+            for time in self.times:
+                for bus in self.buses:
+                    Is[bus].append(test.optimization_model.I[time, bus].value)
+
+            SOCs_df = pd.DataFrame(SOCs)
+            SOCs_df.index = pd.date_range(start='2021', periods=len(SOCs_df), freq=str(self.resolution)+'min')
+            Is_df = pd.DataFrame(Is)
+            Is_df.index = pd.date_range(start='2021', periods=len(SOCs_df), freq=str(self.resolution) + 'min')
+
+            fig, ax = plt.subplots(2, 1, figsize=(15, 15), sharex=True)
+            for column in SOCs_df.columns:
+                ax[0].plot(SOCs_df.index, SOCs_df[column], marker='o', label=f'SOC der Batterie am Knoten {column}')
+            ax[0].legend()
+            ax[0].grid()
+            ax[0].set_ylabel('SOC [%]')
+            ax[0].set_title('SOC über der Zeit - Ergebnisse der Optimierung')
+
+            for column in Is_df.columns:
+                ax[1].plot(Is_df.index, Is_df[column], marker='o', label=f'Strom in die Batterie am Knoten {column}')
+            ax[1].legend()
+            ax[1].grid()
+            ax[1].set_ylabel('Strom [A]')
+            ax[1].set_xlabel('Zeitpunkt [MM-TT hh]')
+            ax[1].set_title('Strom über der Zeit - Ergebnisse der Optimierung')
+
+            plt.show()
 
 
 
 if __name__ == '__main__':
     t0 = time.time()
     test = GridLineOptimizer(6, bev_buses=list(range(6)), resolution=60)
-    print(test.bevs)
-    test.list_bevs()
-
-
     # print(test.buses)
     # print(test.lines)
     # print(test.impedances)
@@ -343,39 +409,16 @@ if __name__ == '__main__':
     test.display_target_function()
     test.display_min_voltage_constraint()
     test.display_max_current_constraint()
-    #test.display_track_socs_constraint()
-    #res = test.run_optimization_single_timestep(tee=True)
-    # #for i, val in enumerate(res):
-    #     #print(f'Strom am Knoten {i}: {val}')
-    # #
-    #dt = time.time() - t0
-    #print('Laufzeit', dt)
-    print('starte rolling horizon: \n')
-    test.run_optimization_rolling_horizon(24, tee=False)
+    test.display_track_socs_constraint()
+    res = test.run_optimization_single_timestep(tee=True)
+    #test.run_optimization_rolling_horizon(24, tee=False)
     dt = time.time() - t0
     print('fertig nach', dt, 'sek')
     # test.optimization_model.I.pprint()
     # print(res)
-    #test.optimization_model.SOC.pprint()
     test.optimization_model.SOC.pprint()
-    print(test.results_I[0])
-    print(test.soc_init_array)
+    print(test.results_I)
 
-    #========== mal die Ergebnisse plotten (auch wenn die noch Käse sind) ===========
-    x = list(range(24))
-    y = {bus: [] for bus in test.buses}
-    for time in test.times:
-        for bus in test.buses:
-            y[bus].append(test.optimization_model.SOC[time, bus].value)
-
-    import pandas as pd
-
-    ydf = pd.DataFrame(y)
-    print(ydf)
-    ydf.index = pd.date_range('2020', periods=len(ydf), freq='60min')
-    ydf.plot()
-    plt.show()
-
-
-
+    test.plot_results()
+    test.display_ensure_final_soc_constraint()
 
