@@ -99,7 +99,8 @@ class GridLineOptimizer:
         self.bevs = bevs
         #self._make_bevs()
 
-        self.soc_init_array = self._make_soc_init_array()
+        self.soc_lower_bounds = self._make_soc_lower_bounds()
+        self.soc_upper_bounds = self._make_soc_upper_bounds()
 
         self.optimization_model = self._setup_model()
         self.grid = self._setup_grid()
@@ -116,14 +117,24 @@ class GridLineOptimizer:
     # darauffolgenden Zeitschritten model.times mit neuen 24
     # Werten überschrieben werden => einfach länger machen, oder
     # (vielleicht) besser: als generator)
-    def _make_soc_init_array(self):
-        soc_init_array = {bus: [self.bevs[bus].soc_start for _ in range(len(self.times)+24)] for bus in self.buses}
+    def _make_soc_lower_bounds(self):
+        soc_lower_bounds = {bus: [self.bevs[bus].soc_start for _ in range(len(self.times)+24)] for bus in self.buses}
         for bus in self.buses:
             # dafür sorgen, dass an demjenigen Zeitpunkt, wo die geladen sein wollen t_target
             # der gewünschte Ladestand soc_target dasteht
-            soc_init_array[bus][self.bevs[bus].t_target] = self.bevs[bus].soc_target
-        return soc_init_array
+            soc_lower_bounds[bus][self.bevs[bus].t_target] = self.bevs[bus].soc_target
+        return soc_lower_bounds
         # +24 'hingepfuscht', um bei weiterwanderndem Horizontt auch noch spätere Werte zu haben
+
+
+    def _make_soc_upper_bounds(self):
+        soc_upper_bounds = {bus: [self.bevs[bus].soc_target for _ in range(len(self.times)+24)] for bus in self.buses}
+        for bus in self.buses:
+            # dafür sorgen, dass beim Startzeitpunkt die upper bound gleich der lower bound
+            # (also soc start) ist (bei anderen Startpunkten als 0 noch entsprechendes
+            # t_start in BEV einführen und hier statt 0 nutzen
+            soc_upper_bounds[bus][0] = self.bevs[bus].soc_start
+        return soc_upper_bounds
 
 
     def _make_buses(self):
@@ -173,11 +184,11 @@ class GridLineOptimizer:
         # Entscheidungsvariablen erzeugen (dafür erstmal am besten ein array (timesteps x buses)
         # wo überall nur 50 drinsteht (oder was man dem BEV halt als coc_start übergeben hatte))
         # erzeugen und diese Werte als lower bound ausgeben
-        def get_init_socs(model, time, bus):
-            return (self.soc_init_array[bus][time], 100)
+        def get_soc_bounds(model, time, bus):
+            return (self.soc_lower_bounds[bus][time], self.soc_upper_bounds[bus][time])
 
         model.I = pe.Var(model.times*model.buses, domain=pe.PositiveReals, bounds=(0, 27))
-        model.SOC = pe.Var(model.times*model.buses, domain=pe.PositiveReals, bounds=get_init_socs)
+        model.SOC = pe.Var(model.times*model.buses, domain=pe.PositiveReals, bounds=get_soc_bounds)
 
         # Zielfunktion erzeugen
         def max_power_rule(model):
