@@ -67,7 +67,7 @@ class GridLineOptimizer:
     global _pandas_available
     global _matplotlib_available
 
-    def __init__(self, number_buses, bev_buses, charger_locs=None, voltages=None, impedances=None,
+    def __init__(self, number_buses, bev_buses, bevs, charger_locs=None, voltages=None, impedances=None,
                  resolution=60, s_trafo_kVA=100, solver='glpk'):
         self.current_timestep = 0
         self.resolution = resolution
@@ -79,9 +79,10 @@ class GridLineOptimizer:
             self.voltages = self._make_voltages()
         else:
             self.voltages = voltages
-        self.i_max = 160   # 160
+        #self.i_max = 160   # 160
         self.u_min = 0.9*400
         self.s_trafo = s_trafo_kVA
+        self.i_max = s_trafo_kVA*1000 / 400
         self.solver = solver
         self.solver_factory = pe.SolverFactory(self.solver)
         if charger_locs == None:
@@ -95,8 +96,8 @@ class GridLineOptimizer:
             self.impedances = impedances
 
         self.bev_buses = bev_buses
-        self.bevs = []
-        self._make_bevs()
+        self.bevs = bevs
+        #self._make_bevs()
 
         self.soc_init_array = self._make_soc_init_array()
 
@@ -222,7 +223,7 @@ class GridLineOptimizer:
         model.max_current = pe.Constraint(model.times, rule=max_current_rule)
         model.track_socs = pe.Constraint(model.times*model.buses, rule=track_socs_rule)
         # mit diesem Constraint kommt dasselbe raus, als hätte man nur track_socs aktiv
-        model.ensure_final_soc = pe.Constraint(model.buses, rule=ensure_final_soc_rule)
+        #model.ensure_final_soc = pe.Constraint(model.buses, rule=ensure_final_soc_rule)
 
         return model
 
@@ -372,7 +373,7 @@ class GridLineOptimizer:
             Is = {bus: [] for bus in self.buses}
             for time in self.times:
                 for bus in self.buses:
-                    Is[bus].append(test.optimization_model.I[time, bus].value)
+                    Is[bus].append(self.optimization_model.I[time, bus].value)
 
             SOCs_df = pd.DataFrame(SOCs)
             SOCs_df.index = pd.date_range(start='2021', periods=len(SOCs_df), freq=str(self.resolution)+'min')
@@ -401,7 +402,7 @@ class GridLineOptimizer:
 
 if __name__ == '__main__':
     t0 = time.time()
-    test = GridLineOptimizer(6, bev_buses=list(range(6)), resolution=60)
+    test = GridLineOptimizer(6, bev_buses=list(range(6)), resolution=15)
     # print(test.buses)
     # print(test.lines)
     # print(test.impedances)
