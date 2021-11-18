@@ -58,6 +58,7 @@ except ModuleNotFoundError:
 
 import time
 from battery_electric_vehicle import BatteryElectricVehicle as BEV
+from household import Household as HH
 
 
 
@@ -67,8 +68,8 @@ class GridLineOptimizer:
     global _pandas_available
     global _matplotlib_available
 
-    def __init__(self, number_buses, bev_buses, bevs, charger_locs=None, voltages=None, impedances=None,
-                 resolution=60, s_trafo_kVA=100, solver='glpk'):
+    def __init__(self, number_buses, bevs, households, charger_locs=None,
+                 voltages=None, impedances=None, resolution=60, s_trafo_kVA=100, solver='glpk'):
         self.current_timestep = 0
         self.resolution = resolution
         self.number_buses = number_buses
@@ -95,7 +96,7 @@ class GridLineOptimizer:
         else:
             self.impedances = impedances
 
-        self.bev_buses = bev_buses
+        #self.bev_buses = bev_buses
         self.bevs = bevs
         #self._make_bevs()
 

@@ -8,7 +8,6 @@ from battery_electric_vehicle import BatteryElectricVehicle as BEV
 resolution = 30
 buses = 6
 bus_lst = list(range(buses))
-bev_buses = list(range(buses))
 s_trafo = 100
 
 start_socs = [20, 20, 30, 20, 40, 20]
@@ -26,8 +25,8 @@ for bus in bus_lst:
               home_bus=bus)
     bev_list.append(bev)
 
-test = GLO(number_buses=buses, bev_buses=bev_buses, bevs=bev_list,
-           resolution=resolution, s_trafo_kVA=s_trafo)
+test = GLO(number_buses=buses, bevs=bev_list, resolution=resolution, s_trafo_kVA=s_trafo,
+           households=None)
 
 test.optimization_model.SOC.pprint()
 
