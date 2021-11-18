@@ -99,6 +99,7 @@ class GridLineOptimizer:
         #self.bev_buses = bev_buses
         self.bevs = bevs
         #self._make_bevs()
+        self.households = households
 
         self.soc_lower_bounds = self._make_soc_lower_bounds()
         self.soc_upper_bounds = self._make_soc_upper_bounds()
@@ -136,6 +137,11 @@ class GridLineOptimizer:
             # t_start in BEV einführen und hier statt 0 nutzen
             soc_upper_bounds[bus][0] = self.bevs[bus].soc_start
         return soc_upper_bounds
+
+
+    # brauch ich evntl. gar nicht
+    def _make_household_currents(self):
+        pass
 
 
     def _make_buses(self):
@@ -181,6 +187,12 @@ class GridLineOptimizer:
         model.voltages = pe.Param(model.buses, initialize=self.voltages)
         model.u_min = self.u_min
         model.i_max = self.i_max
+
+        def get_household_currents(model, time, bus):
+            # getielt durch die Spannung an dem Knoten, weil es ja Strom sein soll
+            return self.households[bus].load_profile.iloc[time] / self.voltages[bus]
+
+        model.household_currents = pe.Param(model.times*model.buses, initialize=get_household_currents)
 
         # Entscheidungsvariablen erzeugen (dafür erstmal am besten ein array (timesteps x buses)
         # wo überall nur 50 drinsteht (oder was man dem BEV halt als coc_start übergeben hatte))
