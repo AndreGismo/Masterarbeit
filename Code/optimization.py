@@ -58,6 +58,7 @@ except ModuleNotFoundError:
 
 import time
 from battery_electric_vehicle import BatteryElectricVehicle as BEV
+from household import Household as HH
 
 
 
@@ -67,8 +68,8 @@ class GridLineOptimizer:
     global _pandas_available
     global _matplotlib_available
 
-    def __init__(self, number_buses, bev_buses, bevs, charger_locs=None, voltages=None, impedances=None,
-                 resolution=60, s_trafo_kVA=100, solver='glpk'):
+    def __init__(self, number_buses, bevs, households, charger_locs=None,
+                 voltages=None, impedances=None, resolution=60, s_trafo_kVA=100, solver='glpk'):
         self.current_timestep = 0
         self.resolution = resolution
         self.number_buses = number_buses
@@ -95,9 +96,10 @@ class GridLineOptimizer:
         else:
             self.impedances = impedances
 
-        self.bev_buses = bev_buses
+        #self.bev_buses = bev_buses
         self.bevs = bevs
         #self._make_bevs()
+        self.households = households
 
         self.soc_lower_bounds = self._make_soc_lower_bounds()
         self.soc_upper_bounds = self._make_soc_upper_bounds()
@@ -135,6 +137,11 @@ class GridLineOptimizer:
             # t_start in BEV einführen und hier statt 0 nutzen
             soc_upper_bounds[bus][0] = self.bevs[bus].soc_start
         return soc_upper_bounds
+
+
+    # brauch ich evntl. gar nicht
+    def _make_household_currents(self):
+        pass
 
 
     def _make_buses(self):
@@ -181,6 +188,12 @@ class GridLineOptimizer:
         model.u_min = self.u_min
         model.i_max = self.i_max
 
+        def get_household_currents(model, time, bus):
+            # getielt durch die Spannung an dem Knoten, weil es ja Strom sein soll
+            return self.households[bus].load_profile[time] / self.voltages[bus]
+
+        model.household_currents = pe.Param(model.times*model.buses, initialize=get_household_currents)
+
         # Entscheidungsvariablen erzeugen (dafür erstmal am besten ein array (timesteps x buses)
         # wo überall nur 50 drinsteht (oder was man dem BEV halt als coc_start übergeben hatte))
         # erzeugen und diese Werte als lower bound ausgeben
@@ -200,12 +213,12 @@ class GridLineOptimizer:
 
         # Einschränkungen festlegen
         def min_voltage_rule(model, t):
-            return model.voltages[0] - sum(model.impedances[i] * sum(model.I[t, j] for j in range(i, len(model.buses)))
+            return model.voltages[0] - sum(model.impedances[i] * sum((model.I[t, j]+model.household_currents[t, j]) for j in range(i, len(model.buses)))
                                            for i in model.lines) >= model.u_min
 
 
         def max_current_rule(model, t):
-            return sum(model.I[t, n] for n in model.buses) <= model.i_max
+            return sum((model.I[t, b] + model.household_currents[t, b]) for b in model.buses) <= model.i_max
 
 
         def track_socs_rule(model, t, b):
