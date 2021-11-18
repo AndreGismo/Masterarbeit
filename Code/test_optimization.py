@@ -42,6 +42,8 @@ test = GLO(number_buses=buses, bevs=bev_list, resolution=resolution, s_trafo_kVA
 
 test.optimization_model.SOC.pprint()
 test.optimization_model.household_currents.pprint()
+test.display_max_current_constraint()
+test.display_min_voltage_constraint()
 
 # optimieren lassen
 test.run_optimization_single_timestep(tee=True)

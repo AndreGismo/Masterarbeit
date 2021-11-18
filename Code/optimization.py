@@ -190,7 +190,7 @@ class GridLineOptimizer:
 
         def get_household_currents(model, time, bus):
             # getielt durch die Spannung an dem Knoten, weil es ja Strom sein soll
-            return self.households[bus].load_profile.iloc[time] / self.voltages[bus]
+            return self.households[bus].load_profile[time] / self.voltages[bus]
 
         model.household_currents = pe.Param(model.times*model.buses, initialize=get_household_currents)
 
@@ -213,12 +213,12 @@ class GridLineOptimizer:
 
         # Einschränkungen festlegen
         def min_voltage_rule(model, t):
-            return model.voltages[0] - sum(model.impedances[i] * sum(model.I[t, j] for j in range(i, len(model.buses)))
+            return model.voltages[0] - sum(model.impedances[i] * sum((model.I[t, j]+model.household_currents[t, j]) for j in range(i, len(model.buses)))
                                            for i in model.lines) >= model.u_min
 
 
         def max_current_rule(model, t):
-            return sum(model.I[t, n] for n in model.buses) <= model.i_max
+            return sum((model.I[t, b] + model.household_currents[t, b]) for b in model.buses) <= model.i_max
 
 
         def track_socs_rule(model, t, b):

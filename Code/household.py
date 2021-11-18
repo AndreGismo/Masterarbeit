@@ -25,6 +25,7 @@ class Household:
         if not self.resolution == type(self)._res_norm:
             #wenn die gewünschte Auflösung eine andere ist als die gegebene, dann resamplen
             self.load_profile = self.load_profile.resample(self.resolution).mean()
+        self.load_profile = self.load_profile.values
 
 
     def plot_load_profile(self):
