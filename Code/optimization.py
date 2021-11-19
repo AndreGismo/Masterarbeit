@@ -5,12 +5,7 @@ man nach der Optimierung die Ergebnisse überprüfen kann.
 
 Eventuell macht die rolling horizon Betrachtung hier auch gar keinen Sinn? Weil sich ja noch keine Werte im Lauf der
 Zeit mal zufällig ändern (wie das in der Realität der Fall wäre). Vielleicht genügt ja ein Durchlauf mit dem 24std
-Horizont -- oder der Fehler liegt einfach in der Logik von store_results
-
-charger_loc werden auch noch nicht verwendet, sondern einfach immer angenommen, dass alle buses belegt sind
-
-beim min_voltage_rule muss jetzt angepasst werden, dass die Is von BEVs und Is von Haushalten separat indexiert werden
-(momentan werden die ja in buses indexiert - was aber nur für die Is der Haushalte korrekt ist)
+Horizont - oder der Fehler liegt einfach in der Logik von store_results
 """
 
 _pandapower_available = True
@@ -203,8 +198,9 @@ class GridLineOptimizer:
 
         # Zielfunktion erzeugen
         def max_power_rule(model):
-            return sum(sum(model.voltages[i]*model.I[j, i] for i in model.charger_buses) for j in model.times)
-            #return sum(sum(model.SOC[t+1, b] - model.SOC[t, b] for b in model.buses) for t in model.times[0:-2])
+            #return sum(sum(model.voltages[i]*model.I[j, i] for i in model.charger_buses) for j in model.times)
+            #return sum(sum(model.SOC[t+1, b] - model.SOC[t, b] for b in model.charger_buses if t < len(model.times)-1) for t in model.times)
+            return sum(sum(model.SOC[t, b] - model.SOC[model.times.prevw(t), b] for b in model.charger_buses) for t in model.times)
 
 
         model.max_power = pe.Objective(rule=max_power_rule, sense=pe.maximize)
