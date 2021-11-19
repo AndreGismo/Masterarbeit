@@ -3,17 +3,14 @@ Klasse GridLineOptimizer, die ein Model zur Optimierung der Ladeleistungen von L
 erzeug. Um die Ergebnisse hinterher validieren zu können, ist auch direkt ein pandapower-Netz mit enthalten, mit dem
 man nach der Optimierung die Ergebnisse überprüfen kann.
 
-Eventuell muss die Zielfunktion angepasst werden, dass dort wirklich immer nur die Is der ersten 24 Sunden auftauchen
-=> noch fixes Set im model definieren und dann die Zielfunktion darin indexieren
-
 Eventuell macht die rolling horizon Betrachtung hier auch gar keinen Sinn? Weil sich ja noch keine Werte im Lauf der
 Zeit mal zufällig ändern (wie das in der Realität der Fall wäre). Vielleicht genügt ja ein Durchlauf mit dem 24std
 Horizont -- oder der Fehler liegt einfach in der Logik von store_results
 
 charger_loc werden auch noch nicht verwendet, sondern einfach immer angenommen, dass alle buses belegt sind
 
-Die SOCs müssen vielleicht auch noch in die Zielfunktion einfließen (sowas in der Art: SOC[t, b] - SOC[t-1, b],
-dass die SOCs einen Anreiz haben, möglichst schnell geladen zu werden)
+beim min_voltage_rule muss jetzt angepasst werden, dass die Is von BEVs und Is von Haushalten separat indexiert werden
+(momentan werden die ja in buses indexiert - was aber nur für die Is der Haushalte korrekt ist)
 """
 
 _pandapower_available = True
@@ -86,20 +83,16 @@ class GridLineOptimizer:
         self.i_max = s_trafo_kVA*1000 / 400
         self.solver = solver
         self.solver_factory = pe.SolverFactory(self.solver)
-        if charger_locs == None:
-            self.charger_locs = self.buses  # vielleicht lieber als dict: {1: True, 2: False...}?
-        else:
-            self.charger_locs = charger_locs
+        self.charger_locs = None
 
         if impedances == None:
             self.impedances = self._make_impedances()
         else:
             self.impedances = impedances
 
-        #self.bev_buses = bev_buses
         self.bevs = bevs
-        #self._make_bevs()
         self.households = households
+        self._determine_charger_locs()
 
         self.soc_lower_bounds = self._make_soc_lower_bounds()
         self.soc_upper_bounds = self._make_soc_upper_bounds()
@@ -120,28 +113,23 @@ class GridLineOptimizer:
     # Werten überschrieben werden => einfach länger machen, oder
     # (vielleicht) besser: als generator)
     def _make_soc_lower_bounds(self):
-        soc_lower_bounds = {bus: [self.bevs[bus].soc_start for _ in range(len(self.times)+24)] for bus in self.buses}
-        for bus in self.buses:
+        soc_lower_bounds = {bus: [self.bevs[self.charger_locs.index(bus)].soc_start for _ in range(len(self.times)+24)] for bus in self.charger_locs}
+        for bus in self.charger_locs:
             # dafür sorgen, dass an demjenigen Zeitpunkt, wo die geladen sein wollen t_target
             # der gewünschte Ladestand soc_target dasteht
-            soc_lower_bounds[bus][self.bevs[bus].t_target] = self.bevs[bus].soc_target
+            soc_lower_bounds[bus][self.bevs[self.charger_locs.index(bus)].t_target] = self.bevs[self.charger_locs.index(bus)].soc_target
         return soc_lower_bounds
         # +24 'hingepfuscht', um bei weiterwanderndem Horizontt auch noch spätere Werte zu haben
 
 
     def _make_soc_upper_bounds(self):
-        soc_upper_bounds = {bus: [self.bevs[bus].soc_target for _ in range(len(self.times)+24)] for bus in self.buses}
-        for bus in self.buses:
+        soc_upper_bounds = {bus: [self.bevs[self.charger_locs.index(bus)].soc_target for _ in range(len(self.times)+24)] for bus in self.charger_locs}
+        for bus in self.charger_locs:
             # dafür sorgen, dass beim Startzeitpunkt die upper bound gleich der lower bound
             # (also soc start) ist (bei anderen Startpunkten als 0 noch entsprechendes
             # t_start in BEV einführen und hier statt 0 nutzen
-            soc_upper_bounds[bus][0] = self.bevs[bus].soc_start
+            soc_upper_bounds[bus][0] = self.bevs[self.charger_locs.index(bus)].soc_start
         return soc_upper_bounds
-
-
-    # brauch ich evntl. gar nicht
-    def _make_household_currents(self):
-        pass
 
 
     def _make_buses(self):
@@ -164,6 +152,7 @@ class GridLineOptimizer:
         return {i: 0.3 for i in self.lines}  # 0.04
 
 
+    # wird nicht mehr benutzt, da BEVs außerhalb erzeugt werden
     def _make_bevs(self):
         for bus in self.bev_buses:
             bev_bus_voltage = self.voltages[bus]
@@ -171,6 +160,14 @@ class GridLineOptimizer:
             bev = BEV(home_bus=bus, e_bat=50, bus_voltage=bev_bus_voltage, resolution=self.resolution,
                       soc_start=start_soc)
             self.bevs.append(bev)
+
+
+    def _determine_charger_locs(self):
+        locations = []
+        for bev in self.bevs:
+            locations.append(bev.home_bus)
+        self.charger_locs = locations
+        print('Busse an denen Charger stehen:', self.charger_locs)
 
 
     def _setup_model(self):
@@ -181,6 +178,7 @@ class GridLineOptimizer:
         model.buses = pe.Set(initialize=self.buses)
         model.lines = pe.Set(initialize=self.lines)
         model.times = pe.Set(initialize=self.times)
+        model.charger_buses = pe.Set(initialize=self.charger_locs)
 
         # Parameter erzeugen
         model.impedances = pe.Param(model.lines, initialize=self.impedances)
@@ -200,25 +198,27 @@ class GridLineOptimizer:
         def get_soc_bounds(model, time, bus):
             return (self.soc_lower_bounds[bus][time], self.soc_upper_bounds[bus][time])
 
-        model.I = pe.Var(model.times*model.buses, domain=pe.PositiveReals, bounds=(0, 27))
-        model.SOC = pe.Var(model.times*model.buses, domain=pe.PositiveReals, bounds=get_soc_bounds)
+        model.I = pe.Var(model.times*model.charger_buses, domain=pe.PositiveReals, bounds=(0, 27))
+        model.SOC = pe.Var(model.times*model.charger_buses, domain=pe.PositiveReals, bounds=get_soc_bounds)
 
         # Zielfunktion erzeugen
         def max_power_rule(model):
-            return sum(sum(model.voltages[i]*model.I[j, i] for i in model.buses) for j in model.times)
+            return sum(sum(model.voltages[i]*model.I[j, i] for i in model.charger_buses) for j in model.times)
             #return sum(sum(model.SOC[t+1, b] - model.SOC[t, b] for b in model.buses) for t in model.times[0:-2])
+
 
         model.max_power = pe.Objective(rule=max_power_rule, sense=pe.maximize)
 
 
         # Einschränkungen festlegen
         def min_voltage_rule(model, t):
-            return model.voltages[0] - sum(model.impedances[i] * sum((model.I[t, j]+model.household_currents[t, j]) for j in range(i, len(model.buses)))
+            return model.voltages[0] - sum(model.impedances[i] * (sum(model.household_currents[t, j] for j in model.buses if j > i)
+                                                                  +sum(model.I[t, j] for j in model.charger_buses if j > i))
                                            for i in model.lines) >= model.u_min
 
 
         def max_current_rule(model, t):
-            return sum((model.I[t, b] + model.household_currents[t, b]) for b in model.buses) <= model.i_max
+            return sum(model.I[t, b] for b in model.charger_buses) + sum(model.household_currents[t, b] for b in model.buses) <= model.i_max
 
 
         def track_socs_rule(model, t, b):
@@ -226,7 +226,7 @@ class GridLineOptimizer:
             # sonst kein t+1 mehr geben würde beim letzten timestep)
             if t < self.current_timestep + 24*60/self.resolution-1:#23:
                 return (model.SOC[t, b] + model.I[t, b] * model.voltages[b] * self.resolution/60 / 1000
-                        / self.bevs[b].e_bat*100 - model.SOC[t+1, b]) == 0
+                        / self.bevs[self.charger_locs.index(b)].e_bat*100 - model.SOC[t+1, b]) == 0
 
             else:
                 return pe.Constraint.Skip
@@ -245,7 +245,7 @@ class GridLineOptimizer:
 
         model.min_voltage = pe.Constraint(model.times, rule=min_voltage_rule)
         model.max_current = pe.Constraint(model.times, rule=max_current_rule)
-        model.track_socs = pe.Constraint(model.times*model.buses, rule=track_socs_rule)
+        model.track_socs = pe.Constraint(model.times*model.charger_buses, rule=track_socs_rule)
         # mit diesem Constraint kommt dasselbe raus, als hätte man nur track_socs aktiv
         #model.ensure_final_soc = pe.Constraint(model.buses, rule=ensure_final_soc_rule)
 
@@ -389,14 +389,14 @@ class GridLineOptimizer:
 
         else:
             # erstmal die ergebnisse aus dem Modell abfragen
-            SOCs = {bus: [] for bus in self.buses}
+            SOCs = {bus: [] for bus in self.charger_locs}
             for time in self.times:
-                for bus in self.buses:
+                for bus in self.charger_locs:
                     SOCs[bus].append(self.optimization_model.SOC[time, bus].value)
 
-            Is = {bus: [] for bus in self.buses}
+            Is = {bus: [] for bus in self.charger_locs}
             for time in self.times:
-                for bus in self.buses:
+                for bus in self.charger_locs:
                     Is[bus].append(self.optimization_model.I[time, bus].value)
 
             SOCs_df = pd.DataFrame(SOCs)

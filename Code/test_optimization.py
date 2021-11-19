@@ -7,28 +7,31 @@ from battery_electric_vehicle import BatteryElectricVehicle as BEV
 from household import Household as HH
 
 
-resolution = 15
+resolution = 60
 buses = 6
+bevs = 5
+bev_lst = list(range(bevs))
 bus_lst = list(range(buses))
 s_trafo = 150  #kVA
 
 # BEVs
-start_socs = [20, 20, 30, 20, 40, 20]
-target_socs = [80, 70, 100, 90, 70, 70]
-target_times = [16, 16, 15, 18, 20, 18]
-bat_energies = [50, 50, 50, 50, 50, 50]
-bus_volts = [400-i/2 for i in bus_lst]
+home_buses = [0, 1, 2, 3, 5]
+start_socs = [20, 20, 30, 20, 40]
+target_socs = [80, 70, 100, 90, 70]
+target_times = [16, 16, 15, 18, 20]
+bat_energies = [50, 50, 50, 50, 50]
+bus_volts = [400-i/2 for i in bev_lst]
 
 # Households
 ann_dems = [3000, 35000, 3000, 4000, 3000, 3000]
 
 # BEVs erzeugen
 bev_list = []
-for bus in bus_lst:
-    bev = BEV(soc_start=start_socs[bus], soc_target=target_socs[bus],
-              t_target=target_times[bus], e_bat=bat_energies[bus],
-              resolution=resolution, bus_voltage=bus_volts[bus],
-              home_bus=bus)
+for car in bev_lst:
+    bev = BEV(soc_start=start_socs[car], soc_target=target_socs[car],
+              t_target=target_times[car], e_bat=bat_energies[car],
+              resolution=resolution, bus_voltage=bus_volts[car],
+              home_bus=home_buses[car])
     bev_list.append(bev)
 
 # Households erzeugen
@@ -48,6 +51,8 @@ test.display_min_voltage_constraint()
 
 # optimieren lassen
 test.run_optimization_single_timestep(tee=True)
+
+test.optimization_model.SOC.pprint()
 
 # Ergebnisse darstellen
 test.plot_results()
