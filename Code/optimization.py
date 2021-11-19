@@ -200,7 +200,6 @@ class GridLineOptimizer:
 
         model.I = pe.Var(model.times*model.charger_buses, domain=pe.PositiveReals, bounds=(0, 27))
         model.SOC = pe.Var(model.times*model.charger_buses, domain=pe.PositiveReals, bounds=get_soc_bounds)
-        model.SOC.pprint()
 
         # Zielfunktion erzeugen
         def max_power_rule(model):
@@ -390,14 +389,14 @@ class GridLineOptimizer:
 
         else:
             # erstmal die ergebnisse aus dem Modell abfragen
-            SOCs = {bus: [] for bus in self.buses}
+            SOCs = {bus: [] for bus in self.charger_locs}
             for time in self.times:
-                for bus in self.buses:
+                for bus in self.charger_locs:
                     SOCs[bus].append(self.optimization_model.SOC[time, bus].value)
 
-            Is = {bus: [] for bus in self.buses}
+            Is = {bus: [] for bus in self.charger_locs}
             for time in self.times:
-                for bus in self.buses:
+                for bus in self.charger_locs:
                     Is[bus].append(self.optimization_model.I[time, bus].value)
 
             SOCs_df = pd.DataFrame(SOCs)
