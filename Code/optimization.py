@@ -9,9 +9,8 @@ Horizont -- oder der Fehler liegt einfach in der Logik von store_results
 
 charger_loc werden auch noch nicht verwendet, sondern einfach immer angenommen, dass alle buses belegt sind
 
-bei make_soc_lower_bounds der Fehler im dict_comp: weil die BEVs an [0, 1, 2, 3, 5] stehen und das aber als
-[0, 1, 2, 3, 4] gezählt wird => muss also irgendie auf das Element an der Stelle zugegriffen werden
-=> also statt bev[bus] muss es heißen bevs[self.charger_locs.index(bus)]
+beim min_voltage_rule muss jetzt angepasst werden, dass die Is von BEVs und Is von Haushalten separat indexiert werden
+(momentan werden die ja in buses indexiert - was aber nur für die Is der Haushalte korrekt ist)
 """
 
 _pandapower_available = True
@@ -201,23 +200,26 @@ class GridLineOptimizer:
 
         model.I = pe.Var(model.times*model.charger_buses, domain=pe.PositiveReals, bounds=(0, 27))
         model.SOC = pe.Var(model.times*model.charger_buses, domain=pe.PositiveReals, bounds=get_soc_bounds)
+        model.SOC.pprint()
 
         # Zielfunktion erzeugen
         def max_power_rule(model):
             return sum(sum(model.voltages[i]*model.I[j, i] for i in model.charger_buses) for j in model.times)
             #return sum(sum(model.SOC[t+1, b] - model.SOC[t, b] for b in model.buses) for t in model.times[0:-2])
 
+
         model.max_power = pe.Objective(rule=max_power_rule, sense=pe.maximize)
 
 
         # Einschränkungen festlegen
         def min_voltage_rule(model, t):
-            return model.voltages[0] - sum(model.impedances[i] * sum((model.I[t, j]+model.household_currents[t, j]) for j in range(i, len(model.buses)))
+            return model.voltages[0] - sum(model.impedances[i] * (sum(model.household_currents[t, j] for j in model.buses if j > i)
+                                                                  +sum(model.I[t, j] for j in model.charger_buses if j > i))
                                            for i in model.lines) >= model.u_min
 
 
         def max_current_rule(model, t):
-            return sum((model.I[t, b] + model.household_currents[t, b]) for b in model.buses) <= model.i_max
+            return sum(model.I[t, b] for b in model.charger_buses) + sum(model.household_currents[t, b] for b in model.buses) <= model.i_max
 
 
         def track_socs_rule(model, t, b):
@@ -225,7 +227,7 @@ class GridLineOptimizer:
             # sonst kein t+1 mehr geben würde beim letzten timestep)
             if t < self.current_timestep + 24*60/self.resolution-1:#23:
                 return (model.SOC[t, b] + model.I[t, b] * model.voltages[b] * self.resolution/60 / 1000
-                        / self.bevs[b].e_bat*100 - model.SOC[t+1, b]) == 0
+                        / self.bevs[self.charger_locs.index(b)].e_bat*100 - model.SOC[t+1, b]) == 0
 
             else:
                 return pe.Constraint.Skip
@@ -244,7 +246,7 @@ class GridLineOptimizer:
 
         model.min_voltage = pe.Constraint(model.times, rule=min_voltage_rule)
         model.max_current = pe.Constraint(model.times, rule=max_current_rule)
-        model.track_socs = pe.Constraint(model.times*model.buses, rule=track_socs_rule)
+        model.track_socs = pe.Constraint(model.times*model.charger_buses, rule=track_socs_rule)
         # mit diesem Constraint kommt dasselbe raus, als hätte man nur track_socs aktiv
         #model.ensure_final_soc = pe.Constraint(model.buses, rule=ensure_final_soc_rule)
 

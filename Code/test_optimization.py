@@ -7,7 +7,7 @@ from battery_electric_vehicle import BatteryElectricVehicle as BEV
 from household import Household as HH
 
 
-resolution = 15
+resolution = 60
 buses = 6
 bevs = 5
 bev_lst = list(range(bevs))
@@ -51,6 +51,8 @@ test.display_min_voltage_constraint()
 
 # optimieren lassen
 test.run_optimization_single_timestep(tee=True)
+
+test.optimization_model.SOC.pprint()
 
 # Ergebnisse darstellen
 test.plot_results()
