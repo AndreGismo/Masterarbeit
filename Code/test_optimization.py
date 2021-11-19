@@ -7,10 +7,10 @@ from battery_electric_vehicle import BatteryElectricVehicle as BEV
 from household import Household as HH
 
 
-resolution = 30
+resolution = 15
 buses = 6
 bus_lst = list(range(buses))
-s_trafo = 100  #kVA
+s_trafo = 150  #kVA
 
 # BEVs
 start_socs = [20, 20, 30, 20, 40, 20]
@@ -35,6 +35,7 @@ for bus in bus_lst:
 household_list = []
 for bus in bus_lst:
     household = HH(home_bus=bus, annual_demand=ann_dems[bus], resolution=resolution)
+    household.raise_demand(10, 17, 1000)
     household_list.append(household)
 
 test = GLO(number_buses=buses, bevs=bev_list, resolution=resolution, s_trafo_kVA=s_trafo,

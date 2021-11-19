@@ -404,7 +404,7 @@ class GridLineOptimizer:
             Is_df = pd.DataFrame(Is)
             Is_df.index = pd.date_range(start='2021', periods=len(SOCs_df), freq=str(self.resolution) + 'min')
 
-            fig, ax = plt.subplots(2, 1, figsize=(15, 15), sharex=True)
+            fig, ax = plt.subplots(2, 1, figsize=(15, 15), sharex=False)
             for column in SOCs_df.columns:
                 ax[0].plot(SOCs_df.index, SOCs_df[column], marker='o', label=f'SOC der Batterie am Knoten {column}')
             ax[0].legend()

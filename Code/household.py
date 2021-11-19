@@ -29,13 +29,33 @@ class Household:
 
 
     def plot_load_profile(self):
-        self.load_profile.plot()
+        plt.plot(list(range(len(self.load_profile))), self.load_profile)
         plt.show()
+
+
+    def raise_demand(self, start, end, demand, recurring=None):
+        if recurring == 'daily':
+            cycles = 364
+            offset = int(24 * 60/int(self.resolution.rstrip('min')))
+        elif recurring == 'weekly':
+            cycles = 51
+            offset = int(168 * 60/int(self.resolution.rstrip('min')))
+
+        start = int(start * 60/int(self.resolution.rstrip('min')))
+        end = int(end * 60/int(self.resolution.rstrip('min')))
+
+        if recurring == None:
+                self.load_profile[start:end] += demand
+
+        else:
+            for cycle in range(cycles):
+                self.load_profile[int(start+cycle*offset):int(end+cycle*offset)] += demand
 
 
 
 if __name__ == '__main__':
-    slp = Household(5, 5000, resolution=60)
+    slp = Household(5, 5000, resolution=15)
+    slp.raise_demand(10, 14, 1200, recurring='daily')
     slp.plot_load_profile()
 
 
