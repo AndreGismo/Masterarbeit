@@ -108,7 +108,7 @@ class GridLineOptimizer:
     # Werten überschrieben werden => einfach länger machen, oder
     # (vielleicht) besser: als generator)
     def _make_soc_lower_bounds(self):
-        soc_lower_bounds = {bus: [self.bevs[self.charger_locs.index(bus)].soc_start for _ in range(len(self.times)+24)] for bus in self.charger_locs}
+        soc_lower_bounds = {bus: [self.bevs[self.charger_locs.index(bus)].soc_start for _ in range(len(self.times))] for bus in self.charger_locs}
         for bus in self.charger_locs:
             # dafür sorgen, dass an demjenigen Zeitpunkt, wo die geladen sein wollen t_target
             # der gewünschte Ladestand soc_target dasteht
@@ -118,7 +118,7 @@ class GridLineOptimizer:
 
 
     def _make_soc_upper_bounds(self):
-        soc_upper_bounds = {bus: [self.bevs[self.charger_locs.index(bus)].soc_target for _ in range(len(self.times)+24)] for bus in self.charger_locs}
+        soc_upper_bounds = {bus: [self.bevs[self.charger_locs.index(bus)].soc_target for _ in range(len(self.times))] for bus in self.charger_locs}
         for bus in self.charger_locs:
             # dafür sorgen, dass beim Startzeitpunkt die upper bound gleich der lower bound
             # (also soc start) ist (bei anderen Startpunkten als 0 noch entsprechendes
