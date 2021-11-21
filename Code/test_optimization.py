@@ -7,7 +7,7 @@ from battery_electric_vehicle import BatteryElectricVehicle as BEV
 from household import Household as HH
 
 
-resolution = 60
+resolution = 15
 buses = 6
 bevs = 5
 bev_lst = list(range(bevs))
@@ -42,7 +42,7 @@ for bus in bus_lst:
     household_list.append(household)
 
 test = GLO(number_buses=buses, bevs=bev_list, resolution=resolution, s_trafo_kVA=s_trafo,
-           households=household_list)
+           households=household_list, horizon_width=24)
 
 
 # optimieren lassen

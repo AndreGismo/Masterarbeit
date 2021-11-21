@@ -64,10 +64,11 @@ class GridLineOptimizer:
     global _pandas_available
     global _matplotlib_available
 
-    def __init__(self, number_buses, bevs, households, charger_locs=None,
+    def __init__(self, number_buses, bevs, households, charger_locs=None, horizon_width=24,
                  voltages=None, impedances=None, resolution=60, s_trafo_kVA=100, solver='glpk'):
         self.current_timestep = 0
         self.resolution = resolution
+        self.horizon_width = horizon_width
         self.number_buses = number_buses
         self.buses = self._make_buses()
         self.lines = self._make_lines()
@@ -163,7 +164,7 @@ class GridLineOptimizer:
 
 
     def _make_times(self):
-        self.times = list(range(self.current_timestep, self.current_timestep+24*int(60/self.resolution)))
+        self.times = list(range(self.current_timestep, self.current_timestep+self.horizon_width*int(60/self.resolution)))
 
 
     def _make_voltages(self):
@@ -237,8 +238,6 @@ class GridLineOptimizer:
         model.lines = pe.Set(initialize=self.lines)
         model.times = pe.Set(initialize=self.times)
         model.charger_buses = pe.Set(initialize=[bev.home_bus for bev in self.bevs.values()])
-        print(model.charger_buses.value)
-        print(model.times.value)
 
         # Parameter erzeugen
         model.impedances = pe.Param(model.lines, initialize=self.impedances)
@@ -288,7 +287,7 @@ class GridLineOptimizer:
         def track_socs_rule(model, t, b):
             # schauen, dass man immer nur bis zum vorletzten timestep geht (weil es
             # sonst kein t+1 mehr geben würde beim letzten timestep)
-            if t < self.current_timestep + 24*60/self.resolution-1:#23:
+            if t < self.current_timestep + self.horizon_width*60/self.resolution-1:#23:
                 return (model.SOC[t, b] + model.I[t, b] * model.voltages[b] * self.resolution/60 / 1000
                         / self.bevs[b].e_bat*100 - model.SOC[t+1, b]) == 0
 
