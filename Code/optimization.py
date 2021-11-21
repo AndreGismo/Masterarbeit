@@ -9,7 +9,7 @@ Horizont - oder der Fehler liegt einfach in der Logik von store_results
 
 Vielleicht Weite des horizons auch als parameter mit aufnehmen
 
-Die self.bevs lieber als dictionary {bev.home_bus: bev} machen
+Beim upper und lower bounds von SOC und I
 """
 
 _pandapower_available = True
@@ -96,6 +96,9 @@ class GridLineOptimizer:
         self._make_soc_lower_bounds()
         self._make_soc_upper_bounds()
 
+        self.prepare_i_lower_bounds()
+        self.prepare_i_upper_bounds()
+
         self.optimization_model = self._setup_model()
         self.grid = self._setup_grid()
 
@@ -104,13 +107,7 @@ class GridLineOptimizer:
         self.results_I = {bus: [] for bus in self.buses}
 
 
-    # erzeugt ein Array (timesteps x buses) wo für jedes BEV
-    # der entsprechende soc_start für jeden Zeitpunkt steht
-    # (das geht allerdings beim Aufruf von get_init_socs in
-    # create_model nur beim ersten Zeitschritt gut, weil bei den
-    # darauffolgenden Zeitschritten model.times mit neuen 24
-    # Werten überschrieben werden => einfach länger machen, oder
-    # (vielleicht) besser: als generator)
+    # wird nur bei dem allerersten Durchlauf der Optimierung genutzt
     def _make_soc_lower_bounds(self):
         soc_lower_bounds = {bev.home_bus: [bev.soc_start for _ in range(len(self.times))] for bev in self.bevs.values()}
         for bev in self.bevs.values():
@@ -120,6 +117,7 @@ class GridLineOptimizer:
         self.soc_lower_bounds = soc_lower_bounds
 
 
+    # wird nur bei dem allerersten Durchlauf der Optimierung genutzt
     def _make_soc_upper_bounds(self):
         soc_upper_bounds = {bev.home_bus: [bev.soc_target for _ in range(len(self.times))] for bev in self.bevs.values()}
         for bev in self.bevs.values():
@@ -130,18 +128,28 @@ class GridLineOptimizer:
         self.soc_upper_bounds = soc_upper_bounds
 
 
+    def prepare_i_lower_bounds(self):
+        i_lower_bounds = {bev.home_bus: [0 for _ in range(len(self.times))] for bev in self.bevs.values()}
+        self.i_lower_bounds = i_lower_bounds
+
+
+    def prepare_i_upper_bounds(self):
+        i_upper_bounds = {bev.home_bus: [27 for _ in range(len(self.times))] for bev in self.bevs.values()}
+        self.i_upper_bounds = i_upper_bounds
+
+
     def _make_bev_dict(self, bevs):
         bev_dict = {bev.home_bus: bev for bev in bevs}
         self.bevs = bev_dict
 
 
     def _prepare_soc_lower_bounds(self):
-        soc_lower_bounds = {bus: [self.bevs[self.charger_locs.index(bus)].soc_start for _ in range(len(self.times))] for bus in self.charger_locs}
+        soc_lower_bounds = {bev.home_bus: [bev.soc_start for _ in range(len(self.times))] for bev in self.bevs.values()}
         self.soc_lower_bounds = soc_lower_bounds
 
 
     def _prepare_soc_upper_bounds(self):
-        soc_upper_bounds = {bus: [self.bevs[self.charger_locs.index(bus)].soc_target for _ in range(len(self.times))] for bus in self.charger_locs}
+        soc_upper_bounds = {bev.home_bus: [bev.soc_target for _ in range(len(self.times))] for bev in self.bevs.values()}
         self.soc_upper_bounds = soc_upper_bounds
 
 
@@ -175,6 +183,7 @@ class GridLineOptimizer:
             self.bevs.append(bev)
 
 
+    # wird nicht mehr benötigt, da das jetzt direkt über self.bevs ersichtlich ist
     def _determine_charger_locs(self):
         locations = []
         for bev in self.bevs:
@@ -189,18 +198,32 @@ class GridLineOptimizer:
         # die erste Stelle der soc_upper und lower_bounds schreiben (dasselbe auch
         # für I?)
         SOCs2 = []
-        for b in self.charger_locs:
-            SOCs2.append(self.optimization_model.SOC[self.current_timestep, b].value)
+        for bus in self.bevs:
+            SOCs2.append(self.optimization_model.SOC[self.current_timestep, bus].value)
 
         self._prepare_soc_lower_bounds()
         self._prepare_soc_upper_bounds()
-        for num, soc in enumerate(SOCs2):
+
+        for num, bev in enumerate(self.bevs.values()):
             # an der ersten Stelle als lower und upper bound jetzt das Ergebnis
             # schreiben
-            self.soc_lower_bounds[self.bevs.index(num).home_bus][self.current_timestep] = soc
-            self.soc_upper_bounds[self.bevs.index(num).home_bus][self.current_timestep] = soc
-        print('lower socs', self.soc_lower_bounds)
-        print('upper socs', self.soc_upper_bounds)
+            self.soc_lower_bounds[bev.home_bus][0] = SOCs2[num]
+            self.soc_upper_bounds[bev.home_bus][0] = SOCs2[num]
+
+        # Ergebnisse des zweiten timesteps des vorherigen horizons nehmen und für
+        # i upper und lower_bounds an die erste Stelle schreiben
+        Is2 = []
+        for bus in self.bevs:
+            Is2.append(self.optimization_model.I[self.current_timestep, bus].value)
+
+        self.prepare_i_lower_bounds()
+        self.prepare_i_upper_bounds()
+
+        for num, bev in enumerate(self.bevs.values()):
+            self.i_lower_bounds[bev.home_bus][0] = Is2[num]
+            self.i_upper_bounds[bev.home_bus][0] = Is2[num]
+
+
 
 
 
@@ -232,16 +255,19 @@ class GridLineOptimizer:
         # wo überall nur 50 drinsteht (oder was man dem BEV halt als coc_start übergeben hatte))
         # erzeugen und diese Werte als lower bound ausgeben
         def get_soc_bounds(model, time, bus):
-            return (self.soc_lower_bounds[bus][time], self.soc_upper_bounds[bus][time])
+            return (self.soc_lower_bounds[bus][time-self.current_timestep], self.soc_upper_bounds[bus][time-self.current_timestep])
+
+        def get_i_bounds(model, time, bus):
+            return (self.i_lower_bounds[bus][time-self.current_timestep], self.i_upper_bounds[bus][time-self.current_timestep])
 
         model.I = pe.Var(model.times*model.charger_buses, domain=pe.PositiveReals, bounds=(0, 27))
         model.SOC = pe.Var(model.times*model.charger_buses, domain=pe.PositiveReals, bounds=get_soc_bounds)
 
         # Zielfunktion erzeugen
         def max_power_rule(model):
-            #return sum(sum(model.voltages[i]*model.I[j, i] for i in model.charger_buses) for j in model.times)
+            return sum(sum(model.voltages[i]*model.I[j, i] for i in model.charger_buses) for j in model.times)
             #return sum(sum(model.SOC[t+1, b] - model.SOC[t, b] for b in model.charger_buses if t < len(model.times)-1) for t in model.times)
-            return sum(sum(model.SOC[t, b] - model.SOC[model.times.prevw(t), b] for b in model.charger_buses) for t in model.times)
+            #return sum(sum(model.SOC[t, b] - model.SOC[model.times.prevw(t), b] for b in model.charger_buses) for t in model.times)
 
 
         model.max_power = pe.Objective(rule=max_power_rule, sense=pe.maximize)
@@ -362,26 +388,20 @@ class GridLineOptimizer:
             self.results_I[bus].append(I)
 
 
-    # jetzt wo es run_optimization_rolling_horizon gibt, wird diese methode
-    # eigentlich nicht mehr benötigt
+    # simuliert einen Tag mit den Werten für einen Tag, fixer Horizont
     def run_optimization_single_timestep(self, **kwargs):
-        self.solver_factory.solve(self.optimization_model, tee=kwargs['tee'])
+        self.solver_factory.solve(self.optimization_model)#, tee=kwargs['tee'])
         #return list(self.optimization_model.I[:, :].value)
 
 
     def run_optimization_rolling_horizon(self, complete_horizon, **kwargs):
-        for i in range(complete_horizon):
-            print('aktueller Zeitschritt:', i)
-            # Modell entsprechend neu aufbauen (times geht von i bis i+24)
-            self.current_timestep = i
-            self.times = self._make_times()
-            self.optimization_model = self._setup_model()
-            self.solver_factory.solve(self.optimization_model, tee=kwargs['tee'])
-            self._store_results()
-            if i in [11,12,13]:
-                print('------------------------------')
-                print('Zeitpunkt', i)
-                self.optimization_model.ensure_final_soc.pprint()
+        steps = int(complete_horizon * 60/self.resolution)
+        for _ in range(steps):
+            print(self.times)
+            self.optimization_model.max_power.pprint()
+            self.run_optimization_single_timestep()
+            self._prepare_next_timestep()
+            self._setup_model()
 
 
     def plot_grid(self):

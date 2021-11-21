@@ -46,9 +46,10 @@ test = GLO(number_buses=buses, bevs=bev_list, resolution=resolution, s_trafo_kVA
 
 
 # optimieren lassen
-test.run_optimization_single_timestep(tee=True)
+#test.run_optimization_single_timestep(tee=True)
+test.run_optimization_rolling_horizon(24, tee=False)
 
-test.optimization_model.SOC.pprint()
+test.optimization_model.I.pprint()
 #test._prepare_next_timestep()
 
 # Ergebnisse darstellen
