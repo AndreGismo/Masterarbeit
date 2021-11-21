@@ -71,7 +71,8 @@ class GridLineOptimizer:
         self.number_buses = number_buses
         self.buses = self._make_buses()
         self.lines = self._make_lines()
-        self.times = self._make_times()
+        #self.times = self._make_times()
+        self._make_times()
         if voltages == None:
             self.voltages = self._make_voltages()
         else:
@@ -162,7 +163,7 @@ class GridLineOptimizer:
 
 
     def _make_times(self):
-        return list(range(self.current_timestep, self.current_timestep+24*int(60/self.resolution)))
+        self.times = list(range(self.current_timestep, self.current_timestep+24*int(60/self.resolution)))
 
 
     def _make_voltages(self):
@@ -193,7 +194,7 @@ class GridLineOptimizer:
 
     def _prepare_next_timestep(self):
         self.current_timestep += 1
-        self.times = self._make_times()
+        self._make_times()
         # Ergebnisse des zweiten timesteps des vorherigen horizons nehmen und an
         # die erste Stelle der soc_upper und lower_bounds schreiben (dasselbe auch
         # für I?)
@@ -401,7 +402,7 @@ class GridLineOptimizer:
             self.optimization_model.max_power.pprint()
             self.run_optimization_single_timestep()
             self._prepare_next_timestep()
-            self._setup_model()
+            self.optimization_model = self._setup_model()
 
 
     def plot_grid(self):
