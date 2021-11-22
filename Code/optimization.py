@@ -92,6 +92,7 @@ class GridLineOptimizer:
             self.impedances = impedances
 
         self._make_bev_dict(bevs)
+        self._setup_bevs()
         self.households = households
         #self._determine_charger_locs()
 
@@ -145,6 +146,12 @@ class GridLineOptimizer:
     def _make_bev_dict(self, bevs):
         bev_dict = {bev.home_bus: bev for bev in bevs}
         self.bevs = bev_dict
+
+
+    def _setup_bevs(self):
+        for bev in self.bevs.values():
+            bev.set_horizon_width(self.horizon_width)
+            bev.make_occupancies()
 
 
     def _prepare_soc_lower_bounds(self):
