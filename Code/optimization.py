@@ -137,6 +137,8 @@ class GridLineOptimizer:
 
     def prepare_i_upper_bounds(self):
         i_upper_bounds = {bev.home_bus: [27 for _ in range(len(self.times))] for bev in self.bevs.values()}
+        for bev in self.bevs.values():
+            i_upper_bounds[bev.home_bus][0:bev.t_start] = [0 for _ in range(bev.t_start)]
         self.i_upper_bounds = i_upper_bounds
 
 
@@ -260,18 +262,17 @@ class GridLineOptimizer:
         def get_i_bounds(model, time, bus):
             return (self.i_lower_bounds[bus][time-self.current_timestep], self.i_upper_bounds[bus][time-self.current_timestep])
 
-        model.I = pe.Var(model.times*model.charger_buses, domain=pe.PositiveReals, bounds=(0, 27))
+        model.I = pe.Var(model.times*model.charger_buses, domain=pe.PositiveReals, bounds=get_i_bounds)
         model.SOC = pe.Var(model.times*model.charger_buses, domain=pe.PositiveReals, bounds=get_soc_bounds)
 
         # Zielfunktion erzeugen
         def max_power_rule(model):
-            return sum(sum(model.voltages[i]*model.I[j, i] for i in model.charger_buses) for j in model.times)
-            #return sum(sum(model.SOC[t+1, b] - model.SOC[t, b] for b in model.charger_buses if t < len(model.times)-1) for t in model.times)
+            #return sum(sum(model.voltages[i]*model.I[j, i] for i in model.charger_buses) for j in model.times)
+            return sum(sum(model.SOC[t+1, b] - model.SOC[t, b] for b in model.charger_buses if t < len(model.times)-1) for t in model.times)
             #return sum(sum(model.SOC[t, b] - model.SOC[model.times.prevw(t), b] for b in model.charger_buses) for t in model.times)
 
 
         model.max_power = pe.Objective(rule=max_power_rule, sense=pe.maximize)
-
 
         # Einschränkungen festlegen
         def min_voltage_rule(model, t):

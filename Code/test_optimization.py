@@ -17,10 +17,11 @@ s_trafo = 150  #kVA
 # BEVs
 home_buses = [0, 1, 2, 3, 5]
 start_socs = [20, 20, 30, 20, 40]
-target_socs = [80, 70, 100, 90, 70]
-target_times = [16, 16, 15, 18, 20]
+target_socs = [80, 70, 80, 90, 70]
+target_times = [16, 16, 18, 18, 20]
+start_times = [2, 2, 2, 2, 2]
 bat_energies = [50, 50, 50, 50, 50]
-bus_volts = [400-i/2 for i in bev_lst]
+#bus_volts = [400-i/2 for i in bev_lst]
 
 # Households
 ann_dems = [3000, 3500, 3000, 4000, 3000, 3000]
@@ -30,15 +31,14 @@ bev_list = []
 for car in bev_lst:
     bev = BEV(soc_start=start_socs[car], soc_target=target_socs[car],
               t_target=target_times[car], e_bat=bat_energies[car],
-              resolution=resolution, bus_voltage=bus_volts[car],
-              home_bus=home_buses[car])
+              resolution=resolution, home_bus=home_buses[car])
     bev_list.append(bev)
 
 # Households erzeugen
 household_list = []
 for bus in bus_lst:
     household = HH(home_bus=bus, annual_demand=ann_dems[bus], resolution=resolution)
-    #household.raise_demand(12, 21, 7500)
+    household.raise_demand(10, 20, 20000)
     household_list.append(household)
 
 test = GLO(number_buses=buses, bevs=bev_list, resolution=resolution, s_trafo_kVA=s_trafo,
@@ -46,8 +46,9 @@ test = GLO(number_buses=buses, bevs=bev_list, resolution=resolution, s_trafo_kVA
 
 
 # optimieren lassen
-#test.run_optimization_single_timestep(tee=True)
-test.run_optimization_rolling_horizon(24, tee=False)
+test.run_optimization_single_timestep(tee=True)
+#test.run_optimization_rolling_horizon(24, tee=False)
+
 
 
 # Ergebnisse darstellen
