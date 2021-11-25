@@ -64,7 +64,7 @@ class GridLineOptimizer:
     global _pandas_available
     global _matplotlib_available
 
-    def __init__(self, number_buses, bevs, households, charger_locs=None, horizon_width=24,
+    def __init__(self, number_buses, bevs, households, charger_locs=None, horizon_width=24, impedance=0.04,
                  voltages=None, impedances=None, resolution=60, s_trafo_kVA=100, solver='glpk'):
         self.current_timestep = 0
         self.resolution = resolution
@@ -82,6 +82,7 @@ class GridLineOptimizer:
         self.u_min = 0.9*400
         self.s_trafo = s_trafo_kVA
         self.i_max = s_trafo_kVA*1000 / 400
+        self.impedance = impedance
         self.solver = solver
         self.solver_factory = pe.SolverFactory(self.solver)
         #self.charger_locs = None
@@ -117,6 +118,8 @@ class GridLineOptimizer:
             # dafür sorgen, dass an demjenigen Zeitpunkt, wo die geladen sein wollen t_target
             # der gewünschte Ladestand soc_target dasteht
             soc_lower_bounds[bev.home_bus][bev.t_target] = bev.soc_target
+            # und dasselbe für den zweiten Tag nochmal
+            #soc_lower_bounds[bev.home_bus][bev.t_target+int(24*60/self.resolution)] = bev.soc_target
         self.soc_lower_bounds = soc_lower_bounds
 
 
@@ -126,8 +129,10 @@ class GridLineOptimizer:
         for bev in self.bevs.values():
             # dafür sorgen, dass beim Startzeitpunkt die upper bound gleich der lower bound
             # (also soc start) ist (bei anderen Startpunkten als 0 noch entsprechendes
-            # t_start in BEV einführen und hier statt 0 nutzen
+            # t_start in BEV einführen und hier statt 0 nutzen (geschieht schon über I, das dann immer 0 ist, wenn BEV nicht da)
             soc_upper_bounds[bev.home_bus][0] = bev.soc_start
+            # und dasselbe für den nächste Tag
+            #soc_upper_bounds[bev.home_bus][0+int(24*60/self.resolution)] = bev.soc_start
         self.soc_upper_bounds = soc_upper_bounds
 
 
@@ -181,7 +186,7 @@ class GridLineOptimizer:
 
 
     def _make_impedances(self):
-        return {i: 0.04 for i in self.lines}  # 0.04
+        return {i: self.impedance for i in self.lines}  # 0.04
 
 
     # wird nicht mehr benutzt, da BEVs außerhalb erzeugt werden
@@ -269,7 +274,7 @@ class GridLineOptimizer:
         def get_i_bounds(model, time, bus):
             return (self.i_lower_bounds[bus][time-self.current_timestep], self.i_upper_bounds[bus][time-self.current_timestep])
 
-        model.I = pe.Var(model.times*model.charger_buses, domain=pe.PositiveReals, bounds=get_i_bounds)
+        model.I = pe.Var(model.times*model.charger_buses, domain=pe.NonNegativeReals, bounds=get_i_bounds)
         model.SOC = pe.Var(model.times*model.charger_buses, domain=pe.PositiveReals, bounds=get_soc_bounds)
 
         # Zielfunktion erzeugen
@@ -398,7 +403,7 @@ class GridLineOptimizer:
 
     # simuliert einen Tag mit den Werten für einen Tag, fixer Horizont
     def run_optimization_single_timestep(self, **kwargs):
-        self.solver_factory.solve(self.optimization_model)#, tee=kwargs['tee'])
+        self.solver_factory.solve(self.optimization_model, tee=kwargs['tee'])
         #return list(self.optimization_model.I[:, :].value)
 
 
@@ -448,7 +453,7 @@ class GridLineOptimizer:
             print(f'an Knotenspannung {bev.bus_voltage} V')
 
 
-    def plot_results(self):
+    def plot_results(self, legend=True, **kwargs):
         if not _pandas_available or not _matplotlib_available:
             print('\nWARNING: unable to plot results\n')
 
@@ -471,15 +476,17 @@ class GridLineOptimizer:
 
             fig, ax = plt.subplots(2, 1, figsize=(15, 15), sharex=False)
             for column in SOCs_df.columns:
-                ax[0].plot(SOCs_df.index, SOCs_df[column], marker='o', label=f'SOC der Batterie am Knoten {column}')
-            ax[0].legend()
+                ax[0].plot(SOCs_df.index, SOCs_df[column], marker=kwargs['marker'], label=f'SOC der Batterie am Knoten {column}')
+            if legend:
+                ax[0].legend()
             ax[0].grid()
             ax[0].set_ylabel('SOC [%]')
             ax[0].set_title('SOC über der Zeit - Ergebnisse der Optimierung')
 
             for column in Is_df.columns:
-                ax[1].plot(Is_df.index, Is_df[column], marker='o', label=f'Strom in die Batterie am Knoten {column}')
-            ax[1].legend()
+                ax[1].plot(Is_df.index, Is_df[column], marker=kwargs['marker'], label=f'Strom in die Batterie am Knoten {column}')
+            if legend:
+                ax[1].legend()
             ax[1].grid()
             ax[1].set_ylabel('Strom [A]')
             ax[1].set_xlabel('Zeitpunkt [MM-TT hh]')

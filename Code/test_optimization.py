@@ -21,7 +21,6 @@ target_socs = [80, 70, 80, 90, 70]
 target_times = [10, 16, 18, 18, 20]
 start_times = [2, 2, 2, 2, 2]
 bat_energies = [50, 50, 50, 50, 50]
-#bus_volts = [400-i/2 for i in bev_lst]
 
 # Households
 ann_dems = [3000, 3500, 3000, 4000, 3000, 3000]
@@ -39,11 +38,11 @@ for car in bev_lst:
 household_list = []
 for bus in bus_lst:
     household = HH(home_bus=bus, annual_demand=ann_dems[bus], resolution=resolution)
-    #household.raise_demand(11, 19, 23500)
+    household.raise_demand(11, 19, 23500)
     household_list.append(household)
 
 test = GLO(number_buses=buses, bevs=bev_list, resolution=resolution, s_trafo_kVA=s_trafo,
-           households=household_list, horizon_width=48)
+           households=household_list, horizon_width=24)
 
 
 # optimieren lassen
@@ -56,4 +55,4 @@ for bev in bev_list:
     print(bev.occupancies)
 
 # Ergebnisse darstellen
-test.plot_results()
+test.plot_results(marker='o')
