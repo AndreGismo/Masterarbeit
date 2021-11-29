@@ -7,9 +7,8 @@ Eventuell macht die rolling horizon Betrachtung hier auch gar keinen Sinn? Weil 
 Zeit mal zufällig ändern (wie das in der Realität der Fall wäre). Vielleicht genügt ja ein Durchlauf mit dem 24std
 Horizont - oder der Fehler liegt einfach in der Logik von store_results
 
-Vielleicht Weite des horizons auch als parameter mit aufnehmen
-
-Beim upper und lower bounds von SOC und I
+Beim upper und lower bounds von SOC und I auch mal so einstellen, dass da wirklich nur diejenigen Zeitpunkte drin sind,
+an denen wirklich geladen wird
 """
 
 _pandapower_available = True
@@ -103,12 +102,16 @@ class GridLineOptimizer:
         self.prepare_i_lower_bounds()
         self.prepare_i_upper_bounds()
 
-        self.optimization_model = self._setup_model()
+        #self.optimization_model = self._setup_model()
+        self._setup_model()
         self.grid = self._setup_grid()
 
         # hier kommen dann die Ergebnisse für jeden Knoten zu jedem
         # timstep der Strom rein (die SOCs werden im BEV gespeichert)
-        self.results_I = {bus: [] for bus in self.buses}
+        # wird durch store_results (welches in run_optimization_rolling_horizon
+        # aufgerufen wird) mit Werten überschrieben
+        self.results_I = {bus: [] for bus in self.bevs}
+        self.results_SOC = {bus: [] for bus in self.bevs}
 
 
     # wird nur bei dem allerersten Durchlauf der Optimierung genutzt
@@ -212,7 +215,7 @@ class GridLineOptimizer:
         self._make_times()
         # Ergebnisse des zweiten timesteps des vorherigen horizons nehmen und an
         # die erste Stelle der soc_upper und lower_bounds schreiben (dasselbe auch
-        # für I?)
+        # für I? => nein, weil kein Speicher!)
         SOCs2 = []
         for bus in self.bevs:
             SOCs2.append(self.optimization_model.SOC[self.current_timestep, bus].value)
@@ -225,19 +228,6 @@ class GridLineOptimizer:
             # schreiben
             self.soc_lower_bounds[bev.home_bus][0] = SOCs2[num]
             self.soc_upper_bounds[bev.home_bus][0] = SOCs2[num]
-
-        # Ergebnisse des zweiten timesteps des vorherigen horizons nehmen und für
-        # i upper und lower_bounds an die erste Stelle schreiben
-        Is2 = []
-        for bus in self.bevs:
-            Is2.append(self.optimization_model.I[self.current_timestep, bus].value)
-
-        self.prepare_i_lower_bounds()
-        self.prepare_i_upper_bounds()
-
-        for num, bev in enumerate(self.bevs.values()):
-            self.i_lower_bounds[bev.home_bus][0] = Is2[num]
-            self.i_upper_bounds[bev.home_bus][0] = Is2[num]
 
 
 
@@ -252,6 +242,9 @@ class GridLineOptimizer:
         model.lines = pe.Set(initialize=self.lines)
         model.times = pe.Set(initialize=self.times)
         model.charger_buses = pe.Set(initialize=[bev.home_bus for bev in self.bevs.values()])
+        #model.occupancy_times = pe.Set(within=model.times*model.charger_buses,
+                                       #initialize=[[t for t in model.times if t >= self.bevs[b].t_start and t <= self.bevs[b].t_target] for b in model.charger_buses])
+        model.occupancy_times = pe.Set(initialize=model.times*model.charger_buses)#, initialize=[[t for t in model.times] for b in model.charger_buses])
 
         # Parameter erzeugen
         model.impedances = pe.Param(model.lines, initialize=self.impedances)
@@ -286,7 +279,7 @@ class GridLineOptimizer:
 
         model.max_power = pe.Objective(rule=max_power_rule, sense=pe.maximize)
 
-        # Einschränkungen festlegen
+        # Restriktionen festlegen
         def min_voltage_rule(model, t):
             return model.voltages[0] - sum(model.impedances[i] * (sum(model.household_currents[t, j] for j in model.buses if j > i)
                                                                   +sum(model.I[t, j] for j in model.charger_buses if j > i))
@@ -301,6 +294,7 @@ class GridLineOptimizer:
             # schauen, dass man immer nur bis zum vorletzten timestep geht (weil es
             # sonst kein t+1 mehr geben würde beim letzten timestep)
             if t < self.current_timestep + self.horizon_width*60/self.resolution-1:#23:
+            #if t >= self.bevs[b].t_start and t <= self.bevs[b].t_target:
                 return (model.SOC[t, b] + model.I[t, b] * model.voltages[b] * self.resolution/60 / 1000
                         / self.bevs[b].e_bat*100 - model.SOC[t+1, b]) == 0
 
@@ -322,10 +316,12 @@ class GridLineOptimizer:
         model.min_voltage = pe.Constraint(model.times, rule=min_voltage_rule)
         model.max_current = pe.Constraint(model.times, rule=max_current_rule)
         model.track_socs = pe.Constraint(model.times*model.charger_buses, rule=track_socs_rule)
+        #model.track_socs = pe.Constraint(model.occupancy_times, rule=track_socs_rule)
         # mit diesem Constraint kommt dasselbe raus, als hätte man nur track_socs aktiv
         #model.ensure_final_soc = pe.Constraint(model.buses, rule=ensure_final_soc_rule)
 
-        return model
+        #return model
+        self.optimization_model = model
 
 
     def _setup_grid(self):
@@ -388,16 +384,23 @@ class GridLineOptimizer:
         Optimierungsmodel ab und speichert diese.
         :return:
         """
-        for num, bev in enumerate(self.bevs):
+        #for num, bev in enumerate(self.bevs):
             # immer vom ersten (also aktuellen) timestep den entsprechenden SOC
             # wählen
-            SOC = self.optimization_model.SOC[self.current_timestep, num].value
-            bev.enter_soc(SOC)
+            #SOC = self.optimization_model.SOC[self.current_timestep, num].value
+            #bev.enter_soc(SOC)
 
-        for bus in self.buses:
+        #for bus in self.buses:
             # immer vom ersten (also aktuellen) timestep den entsprechenden I
             # wählen
+            #I = self.optimization_model.I[self.current_timestep, bus].value
+            #self.results_I[bus].append(I)
+        for bus in self.bevs:  # das liefert ja die home_buses
+            # Werte aus model abfragen
+            SOC = self.optimization_model.SOC[self.current_timestep, bus].value
             I = self.optimization_model.I[self.current_timestep, bus].value
+            # und in Ergebnisliste eintragen
+            self.results_SOC[bus].append(SOC)
             self.results_I[bus].append(I)
 
 
@@ -412,9 +415,10 @@ class GridLineOptimizer:
         for _ in range(steps):
             print(self.times)
             self.optimization_model.max_power.pprint()
-            self.run_optimization_single_timestep()
+            self.run_optimization_single_timestep(tee=kwargs['tee'])
+            self._store_results()
             self._prepare_next_timestep()
-            self.optimization_model = self._setup_model()
+            self._setup_model()
 
 
     def plot_grid(self):

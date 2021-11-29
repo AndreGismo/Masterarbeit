@@ -9,18 +9,18 @@ from household import Household as HH
 
 resolution = 15
 buses = 6
-bevs = 5
+bevs = 6
 bev_lst = list(range(bevs))
 bus_lst = list(range(buses))
 s_trafo = 150  #kVA
 
 # BEVs
-home_buses = [0, 1, 2, 3, 5]
-start_socs = [20, 20, 30, 20, 40]
-target_socs = [80, 70, 80, 90, 70]
-target_times = [10, 16, 18, 18, 20]
-start_times = [2, 2, 2, 2, 2]
-bat_energies = [50, 50, 50, 50, 50]
+home_buses = [0, 1, 2, 3, 4, 5]
+start_socs = [20, 20, 30, 20, 25, 40]
+target_socs = [80, 70, 80, 90, 80, 70]
+target_times = [10, 16, 18, 18, 17, 20]
+start_times = [2, 2, 2, 2, 2, 2]
+bat_energies = [50, 50, 50, 50, 50, 50]
 
 # Households
 ann_dems = [3000, 3500, 3000, 4000, 3000, 3000]
@@ -46,13 +46,12 @@ test = GLO(number_buses=buses, bevs=bev_list, resolution=resolution, s_trafo_kVA
 
 
 # optimieren lassen
-test.run_optimization_single_timestep(tee=True)
-#test.run_optimization_rolling_horizon(24, tee=False)
-print(test.soc_lower_bounds)
-print(test.soc_upper_bounds)
-test.optimization_model.I.pprint()
-for bev in bev_list:
-    print(bev.occupancies)
+#test.run_optimization_single_timestep(tee=True)
+test.run_optimization_rolling_horizon(24, tee=False)
+
+test.optimization_model.occupancy_times.pprint()
+test.display_track_socs_constraint()
+print(test.results_SOC)
 
 # Ergebnisse darstellen
 test.plot_results(marker='o')
