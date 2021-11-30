@@ -6,6 +6,9 @@ from optimization import GridLineOptimizer as GLO
 from battery_electric_vehicle import BatteryElectricVehicle as BEV
 from household import Household as HH
 
+import matplotlib.pyplot as plt
+
+ROLLING = True
 
 resolution = 15
 buses = 6
@@ -46,12 +49,18 @@ test = GLO(number_buses=buses, bevs=bev_list, resolution=resolution, s_trafo_kVA
 
 
 # optimieren lassen
-#test.run_optimization_single_timestep(tee=True)
-test.run_optimization_rolling_horizon(24, tee=False)
+if not ROLLING:
+    test.run_optimization_single_timestep(tee=True)
+    test.plot_results(marker='o')
 
-test.optimization_model.occupancy_times.pprint()
-test.display_track_socs_constraint()
-print(test.results_SOC)
+else:
+    test.run_optimization_rolling_horizon(24, tee=False)
+    for key in test.results_SOC:
+        print(test.results_SOC[key])
 
-# Ergebnisse darstellen
-test.plot_results(marker='o')
+    for i in range(len(bev_lst)):
+        plt.plot(range(len(test.results_SOC[0])), test.results_SOC[i], marker='o')
+    plt.show()
+
+
+

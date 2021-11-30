@@ -8,7 +8,10 @@ Zeit mal zufällig ändern (wie das in der Realität der Fall wäre). Vielleicht
 Horizont - oder der Fehler liegt einfach in der Logik von store_results
 
 Beim upper und lower bounds von SOC und I auch mal so einstellen, dass da wirklich nur diejenigen Zeitpunkte drin sind,
-an denen wirklich geladen wird
+an denen wirklich geladen wird **
+
+bei prepare_soc_upper- und -lower_bounds noch dafür sorgen, dass als lower bound beim t_target vom jeweiligen BEV
+auch wirklich der soc_target steht
 """
 
 _pandapower_available = True
@@ -164,6 +167,8 @@ class GridLineOptimizer:
 
     def _prepare_soc_lower_bounds(self):
         soc_lower_bounds = {bev.home_bus: [bev.soc_start for _ in range(len(self.times))] for bev in self.bevs.values()}
+        for bev in self.bevs.values():
+            soc_lower_bounds[bev.home_bus][bev.t_target - self.current_timestep] = bev.soc_target
         self.soc_lower_bounds = soc_lower_bounds
 
 
@@ -217,8 +222,10 @@ class GridLineOptimizer:
         # die erste Stelle der soc_upper und lower_bounds schreiben (dasselbe auch
         # für I? => nein, weil kein Speicher!)
         SOCs2 = []
+        #SOCs2 = {bus: None for bus in self.bevs}
         for bus in self.bevs:
-            SOCs2.append(self.optimization_model.SOC[self.current_timestep, bus].value)
+            SOCs2.append(self.optimization_model.SOC[self.current_timestep+1, bus].value)
+            #SOCs2[bus] = self.optimization_model.SOC[self.current_timestep+1, bus].value
 
         self._prepare_soc_lower_bounds()
         self._prepare_soc_upper_bounds()
@@ -412,9 +419,9 @@ class GridLineOptimizer:
 
     def run_optimization_rolling_horizon(self, complete_horizon, **kwargs):
         steps = int(complete_horizon * 60/self.resolution)
-        for _ in range(steps):
-            print(self.times)
-            self.optimization_model.max_power.pprint()
+        for i in range(steps):
+            print(i)
+            #self.optimization_model.max_power.pprint()
             self.run_optimization_single_timestep(tee=kwargs['tee'])
             self._store_results()
             self._prepare_next_timestep()
