@@ -8,7 +8,7 @@ from household import Household as HH
 
 import matplotlib.pyplot as plt
 
-ROLLING = True
+ROLLING = False
 
 resolution = 15
 buses = 6
@@ -51,15 +51,16 @@ test = GLO(number_buses=buses, bevs=bev_list, resolution=resolution, s_trafo_kVA
 # optimieren lassen
 if not ROLLING:
     test.run_optimization_single_timestep(tee=True)
+    test.optimization_model.SOC.pprint()
     test.plot_results(marker='o')
 
 else:
     test.run_optimization_rolling_horizon(24, tee=False)
-    for key in test.results_SOC:
-        print(test.results_SOC[key])
+    for key in test.results_I:
+        print(test.results_I[key])
 
     for i in range(len(bev_lst)):
-        plt.plot(range(len(test.results_SOC[0])), test.results_SOC[i], marker='o')
+        plt.plot(range(len(test.results_I[0])), test.results_SOC[i], marker='o')
     plt.show()
 
 

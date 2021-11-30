@@ -12,6 +12,10 @@ an denen wirklich geladen wird **
 
 bei prepare_soc_upper- und -lower_bounds noch dafür sorgen, dass als lower bound beim t_target vom jeweiligen BEV
 auch wirklich der soc_target steht
+
+beim bisherigen updaten der upper- und lower bounds war auch der Fehler, wenn der current_timestep größer als t_target
+ist, dann wird bei den lower bounds (wo dann dann der soc_target gesetzt wird) sich eine negative Zahl ergeben und die
+List so von hinten her durchgezählt => da kommt dann quatsch raus!!
 """
 
 _pandapower_available = True
@@ -31,7 +35,6 @@ except ModuleNotFoundError:
 
 try:
     import pandapower as pp
-    #raise ModuleNotFoundError
 
 except ModuleNotFoundError:
     print('\nWARNING: module pandapower not available, some features are',
@@ -74,7 +77,6 @@ class GridLineOptimizer:
         self.number_buses = number_buses
         self.buses = self._make_buses()
         self.lines = self._make_lines()
-        #self.times = self._make_times()
         self._make_times()
         if voltages == None:
             self.voltages = self._make_voltages()
@@ -87,7 +89,6 @@ class GridLineOptimizer:
         self.impedance = impedance
         self.solver = solver
         self.solver_factory = pe.SolverFactory(self.solver)
-        #self.charger_locs = None
 
         if impedances == None:
             self.impedances = self._make_impedances()
@@ -102,8 +103,8 @@ class GridLineOptimizer:
         self._make_soc_lower_bounds()
         self._make_soc_upper_bounds()
 
-        self.prepare_i_lower_bounds()
-        self.prepare_i_upper_bounds()
+        self._prepare_i_lower_bounds()
+        self._prepare_i_upper_bounds()
 
         #self.optimization_model = self._setup_model()
         self._setup_model()
@@ -119,7 +120,7 @@ class GridLineOptimizer:
 
     # wird nur bei dem allerersten Durchlauf der Optimierung genutzt
     def _make_soc_lower_bounds(self):
-        soc_lower_bounds = {bev.home_bus: [bev.soc_start for _ in range(len(self.times))] for bev in self.bevs.values()}
+        soc_lower_bounds = {bev.home_bus: {t: bev.soc_start for t in self.times} for bev in self.bevs.values()}
         for bev in self.bevs.values():
             # dafür sorgen, dass an demjenigen Zeitpunkt, wo die geladen sein wollen t_target
             # der gewünschte Ladestand soc_target dasteht
@@ -131,7 +132,7 @@ class GridLineOptimizer:
 
     # wird nur bei dem allerersten Durchlauf der Optimierung genutzt
     def _make_soc_upper_bounds(self):
-        soc_upper_bounds = {bev.home_bus: [bev.soc_target for _ in range(len(self.times))] for bev in self.bevs.values()}
+        soc_upper_bounds = {bev.home_bus: {t: bev.soc_target for t in self.times} for bev in self.bevs.values()}
         for bev in self.bevs.values():
             # dafür sorgen, dass beim Startzeitpunkt die upper bound gleich der lower bound
             # (also soc start) ist (bei anderen Startpunkten als 0 noch entsprechendes
@@ -142,15 +143,15 @@ class GridLineOptimizer:
         self.soc_upper_bounds = soc_upper_bounds
 
 
-    def prepare_i_lower_bounds(self):
-        i_lower_bounds = {bev.home_bus: [0 for _ in range(len(self.times))] for bev in self.bevs.values()}
+    def _prepare_i_lower_bounds(self):
+        i_lower_bounds = {bev.home_bus: {t: 0 for t in self.times} for bev in self.bevs.values()}
         self.i_lower_bounds = i_lower_bounds
 
 
-    def prepare_i_upper_bounds(self):
-        i_upper_bounds = {bev.home_bus: [27 for _ in range(len(self.times))] for bev in self.bevs.values()}
+    def _prepare_i_upper_bounds(self):
+        i_upper_bounds = {bev.home_bus: {t: 27 for t in self.times} for bev in self.bevs.values()}
         for bev in self.bevs.values():
-            i_upper_bounds[bev.home_bus][0:bev.t_start] = [0 for _ in range(bev.t_start)]
+            i_upper_bounds[bev.home_bus][bev.t_start] = 0
         self.i_upper_bounds = i_upper_bounds
 
 
@@ -166,14 +167,14 @@ class GridLineOptimizer:
 
 
     def _prepare_soc_lower_bounds(self):
-        soc_lower_bounds = {bev.home_bus: [bev.soc_start for _ in range(len(self.times))] for bev in self.bevs.values()}
+        soc_lower_bounds = {bev.home_bus: {t: bev.soc_start for t in self.times} for bev in self.bevs.values()}
         for bev in self.bevs.values():
             soc_lower_bounds[bev.home_bus][bev.t_target - self.current_timestep] = bev.soc_target
         self.soc_lower_bounds = soc_lower_bounds
 
 
     def _prepare_soc_upper_bounds(self):
-        soc_upper_bounds = {bev.home_bus: [bev.soc_target for _ in range(len(self.times))] for bev in self.bevs.values()}
+        soc_upper_bounds = {bev.home_bus: {t: bev.soc_target for t in self.times} for bev in self.bevs.values()}
         self.soc_upper_bounds = soc_upper_bounds
 
 
@@ -197,24 +198,6 @@ class GridLineOptimizer:
         return {i: self.impedance for i in self.lines}  # 0.04
 
 
-    # wird nicht mehr benutzt, da BEVs außerhalb erzeugt werden
-    def _make_bevs(self):
-        for bus in self.bev_buses:
-            bev_bus_voltage = self.voltages[bus]
-            start_soc = bus * 5 + 5
-            bev = BEV(home_bus=bus, e_bat=50, bus_voltage=bev_bus_voltage, resolution=self.resolution,
-                      soc_start=start_soc)
-            self.bevs.append(bev)
-
-
-    # wird nicht mehr benötigt, da das jetzt direkt über self.bevs ersichtlich ist
-    def _determine_charger_locs(self):
-        locations = []
-        for bev in self.bevs:
-            locations.append(bev.home_bus)
-        self.charger_locs = locations
-
-
     def _prepare_next_timestep(self):
         self.current_timestep += 1
         self._make_times()
@@ -233,8 +216,11 @@ class GridLineOptimizer:
         for num, bev in enumerate(self.bevs.values()):
             # an der ersten Stelle als lower und upper bound jetzt das Ergebnis
             # schreiben
-            self.soc_lower_bounds[bev.home_bus][0] = SOCs2[num]
-            self.soc_upper_bounds[bev.home_bus][0] = SOCs2[num]
+            self.soc_lower_bounds[bev.home_bus][self.current_timestep] = SOCs2[num]
+            self.soc_upper_bounds[bev.home_bus][self.current_timestep] = SOCs2[num]
+
+        self._prepare_i_lower_bounds()
+        self._prepare_i_upper_bounds()
 
 
 
@@ -269,10 +255,12 @@ class GridLineOptimizer:
         # wo überall nur 50 drinsteht (oder was man dem BEV halt als coc_start übergeben hatte))
         # erzeugen und diese Werte als lower bound ausgeben
         def get_soc_bounds(model, time, bus):
-            return (self.soc_lower_bounds[bus][time-self.current_timestep], self.soc_upper_bounds[bus][time-self.current_timestep])
+            #return (self.soc_lower_bounds[bus][time-self.current_timestep], self.soc_upper_bounds[bus][time-self.current_timestep])
+            return (self.soc_lower_bounds[bus][time], self.soc_upper_bounds[bus][time])
 
         def get_i_bounds(model, time, bus):
-            return (self.i_lower_bounds[bus][time-self.current_timestep], self.i_upper_bounds[bus][time-self.current_timestep])
+            #return (self.i_lower_bounds[bus][time-self.current_timestep], self.i_upper_bounds[bus][time-self.current_timestep])
+            return (self.i_lower_bounds[bus][time], self.i_upper_bounds[bus][time])
 
         model.I = pe.Var(model.times*model.charger_buses, domain=pe.NonNegativeReals, bounds=get_i_bounds)
         model.SOC = pe.Var(model.times*model.charger_buses, domain=pe.PositiveReals, bounds=get_soc_bounds)
@@ -421,7 +409,6 @@ class GridLineOptimizer:
         steps = int(complete_horizon * 60/self.resolution)
         for i in range(steps):
             print(i)
-            #self.optimization_model.max_power.pprint()
             self.run_optimization_single_timestep(tee=kwargs['tee'])
             self._store_results()
             self._prepare_next_timestep()
