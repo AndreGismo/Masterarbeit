@@ -55,7 +55,7 @@ class Household:
 
 if __name__ == '__main__':
     slp = Household(5, 5000, resolution=15)
-    slp.raise_demand(10, 14, 1200, recurring='daily')
+    slp.raise_demand(10, 14, 1200, recurring='weekly')
     slp.plot_load_profile()
 
 
