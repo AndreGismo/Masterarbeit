@@ -15,14 +15,14 @@ from household import Household as HH
 
 import matplotlib.pyplot as plt
 
-ROLLING = False
+ROLLING = True
 
 resolution = 15
 buses = 6
 bevs = 6
 bev_lst = list(range(bevs))
 bus_lst = list(range(buses))
-s_trafo = 50  #kVA
+s_trafo = 150  #kVA
 
 # BEVs
 home_buses = [0, 1, 2, 3, 4, 5]
@@ -48,7 +48,7 @@ for car in bev_lst:
 household_list = []
 for bus in bus_lst:
     household = HH(home_bus=bus, annual_demand=ann_dems[bus], resolution=resolution)
-    #household.raise_demand(11, 19, 23500)
+    household.raise_demand(11, 19, 23500)
     household_list.append(household)
 
 test = GLO(number_buses=buses, bevs=bev_list, resolution=resolution, s_trafo_kVA=s_trafo,

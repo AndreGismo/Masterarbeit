@@ -183,7 +183,9 @@ class GridLineOptimizer:
     def _prepare_soc_lower_bounds(self):
         soc_lower_bounds = {bev.home_bus: {t: bev.soc_start for t in self.times} for bev in self.bevs.values()}
         for bev in self.bevs.values():
-            soc_lower_bounds[bev.home_bus][bev.t_target - self.current_timestep] = bev.soc_target
+            # alle werte von current_timestep
+            #soc_lower_bounds[bev.home_bus][bev.t_target - self.current_timestep] = bev.soc_target
+            soc_lower_bounds[bev.home_bus][bev.t_target] = bev.soc_target
         self.soc_lower_bounds = soc_lower_bounds
 
 
