@@ -22,6 +22,12 @@ List so von hinten her durchgezählt => da kommt dann quatsch raus!!
 Versionsgeschichte:
 V.1: upper und lower bounds der Variables als dict für die einzelnen timesteps => dadurch entfällt die Subtarktion
 des current_timestep beim Auslesen der bounds im model, außerdem intuitiver indexieren
+
+V.2: "intelligentes" Set occupancy_times zum Indexieren. Darin sind jetzt nur noch diejenigen timesteps enthalten,
+an denen am jeweiligen Knoten auch wirklich ein BEV steht zum Laden => dadurch kann man de if-Abfrage vor den rules
+weglassen, die prüft, ob man im Ladezeitraum des entsprechenden BEVs ist. Eventuell können so auch mehrere separate
+Ladevorgänge an einem Bus innerhalb eines Horizonts ermöglicht werden (weil ja dann die timesteps eigentlich nicht mehr
+durchgängig miteinander verbunden sind.
 """
 
 _pandapower_available = True
@@ -30,6 +36,7 @@ _pandas_available = True
 _matplotlib_available = True
 
 import pyomo.environ as pe
+import itertools as itt
 
 try:
     import pandas as pd
@@ -105,6 +112,7 @@ class GridLineOptimizer:
         self._setup_bevs()
         self.households = households
         #self._determine_charger_locs()
+        self._make_occupancy_times()
 
         self._make_soc_lower_bounds()
         self._make_soc_upper_bounds()
@@ -196,6 +204,11 @@ class GridLineOptimizer:
         self.times = list(range(self.current_timestep, self.current_timestep+self.horizon_width*int(60/self.resolution)))
 
 
+    def _make_occupancy_times(self):
+        self.occupancy_times = list(itt.chain(*[[(t,b.home_bus) for t in self.times if t >= self.bevs[b.home_bus].t_start
+                                                 and t <= self.bevs[b.home_bus].t_target] for b in self.bevs.values()]))
+
+
     def _make_voltages(self):
         return {i: 400-i/2 for i in self.buses}
 
@@ -241,9 +254,7 @@ class GridLineOptimizer:
         model.lines = pe.Set(initialize=self.lines)
         model.times = pe.Set(initialize=self.times)
         model.charger_buses = pe.Set(initialize=[bev.home_bus for bev in self.bevs.values()])
-        #model.occupancy_times = pe.Set(within=model.times*model.charger_buses,
-                                       #initialize=[[t for t in model.times if t >= self.bevs[b].t_start and t <= self.bevs[b].t_target] for b in model.charger_buses])
-        model.occupancy_times = pe.Set(initialize=model.times*model.charger_buses)#, initialize=[[t for t in model.times] for b in model.charger_buses])
+        model.occupancy_times = pe.Set(initialize=self.occupancy_times)
 
         # Parameter erzeugen
         model.impedances = pe.Param(model.lines, initialize=self.impedances)
