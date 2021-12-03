@@ -1,5 +1,10 @@
 """
+Author: André Ulrich
+--------------------
 Den GridLineOptimizer testen
+
+Versionsgeschichte:
+V.1: jetzt kann unterschieden werden, ob man mit oder ohne rolling horizon optimieren möchte
 """
 
 from optimization import GridLineOptimizer as GLO

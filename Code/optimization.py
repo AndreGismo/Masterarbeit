@@ -1,4 +1,6 @@
 """
+Author: André Ulrich
+--------------------
 Klasse GridLineOptimizer, die ein Model zur Optimierung der Ladeleistungen von Ladesäulen entlang eines Netzstrahls
 erzeug. Um die Ergebnisse hinterher validieren zu können, ist auch direkt ein pandapower-Netz mit enthalten, mit dem
 man nach der Optimierung die Ergebnisse überprüfen kann.
@@ -16,6 +18,10 @@ auch wirklich der soc_target steht
 beim bisherigen updaten der upper- und lower bounds war auch der Fehler, wenn der current_timestep größer als t_target
 ist, dann wird bei den lower bounds (wo dann dann der soc_target gesetzt wird) sich eine negative Zahl ergeben und die
 List so von hinten her durchgezählt => da kommt dann quatsch raus!!
+
+Versionsgeschichte:
+V.1: upper und lower bounds der Variables als dict für die einzelnen timesteps => dadurch entfällt die Subtarktion
+des current_timestep beim Auslesen der bounds im model, außerdem intuitiver indexieren
 """
 
 _pandapower_available = True
@@ -244,6 +250,7 @@ class GridLineOptimizer:
         model.voltages = pe.Param(model.buses, initialize=self.voltages)
         model.u_min = self.u_min
         model.i_max = self.i_max
+        model.time_costs = pe.Param(model.times, initialize={t: t for t in model.times})
 
         def get_household_currents(model, time, bus):
             # getielt durch die Spannung an dem Knoten, weil es ja Strom sein soll
@@ -267,12 +274,13 @@ class GridLineOptimizer:
 
         # Zielfunktion erzeugen
         def max_power_rule(model):
-            #return sum(sum(model.voltages[i]*model.I[j, i] for i in model.charger_buses) for j in model.times)
-            return sum(sum(model.SOC[t+1, b] - model.SOC[t, b] for b in model.charger_buses if t < len(model.times)-1) for t in model.times)
+            return sum(sum(model.voltages[i]*model.I[j, i]for i in model.charger_buses) for j in model.times)
+            #return sum(sum(model.SOC[t+1, b] - model.SOC[t, b] for b in model.charger_buses if t < len(model.times)-1) for t in model.times)
             #return sum(sum(model.SOC[t, b] - model.SOC[model.times.prevw(t), b] for b in model.charger_buses) for t in model.times)
+            #return sum(sum(model.voltages[i] * model.I[j, i]*model.time_costs[j] for i in model.charger_buses) for j in model.times)
 
 
-        model.max_power = pe.Objective(rule=max_power_rule, sense=pe.maximize)
+        model.max_power = pe.Objective(rule=max_power_rule, sense=pe.minimize)
 
         # Restriktionen festlegen
         def min_voltage_rule(model, t):
@@ -308,12 +316,21 @@ class GridLineOptimizer:
                 return pe.Constraint.Skip
 
 
+        def distribute_loading_rule(model, t, b):
+            if t < self.current_timestep + self.horizon_width * 60 / self.resolution - 1:
+                return model.SOC[t+1, b] - model.SOC[t, b] <= 10 / (60/self.resolution)
+
+            else:
+                return pe.Constraint.Skip
+
+
         model.min_voltage = pe.Constraint(model.times, rule=min_voltage_rule)
         model.max_current = pe.Constraint(model.times, rule=max_current_rule)
         model.track_socs = pe.Constraint(model.times*model.charger_buses, rule=track_socs_rule)
         #model.track_socs = pe.Constraint(model.occupancy_times, rule=track_socs_rule)
         # mit diesem Constraint kommt dasselbe raus, als hätte man nur track_socs aktiv
         #model.ensure_final_soc = pe.Constraint(model.buses, rule=ensure_final_soc_rule)
+        #model.distribute_loading = pe.Constraint(model.times*model.charger_buses, rule=distribute_loading_rule)
 
         #return model
         self.optimization_model = model
@@ -478,17 +495,17 @@ class GridLineOptimizer:
             if legend:
                 ax[0].legend()
             ax[0].grid()
-            ax[0].set_ylabel('SOC [%]')
-            ax[0].set_title('SOC über der Zeit - Ergebnisse der Optimierung')
+            ax[0].set_ylabel('SOC [%]', fontsize=17)
+            ax[0].set_title('SOC über der Zeit - Ergebnisse der Optimierung', fontsize=20)
 
             for column in Is_df.columns:
                 ax[1].plot(Is_df.index, Is_df[column], marker=kwargs['marker'], label=f'Strom in die Batterie am Knoten {column}')
             if legend:
                 ax[1].legend()
             ax[1].grid()
-            ax[1].set_ylabel('Strom [A]')
-            ax[1].set_xlabel('Zeitpunkt [MM-TT hh]')
-            ax[1].set_title('Strom über der Zeit - Ergebnisse der Optimierung')
+            ax[1].set_ylabel('Strom [A]', fontsize=17)
+            ax[1].set_xlabel('Zeitpunkt [MM-TT hh]', fontsize=17)
+            ax[1].set_title('Strom über der Zeit - Ergebnisse der Optimierung', fontsize=20)
 
             plt.show()
 
