@@ -15,7 +15,7 @@ from household import Household as HH
 
 import matplotlib.pyplot as plt
 
-ROLLING = True
+ROLLING = False
 
 resolution = 15
 buses = 6
@@ -28,7 +28,7 @@ s_trafo = 150  #kVA
 home_buses = [0, 1, 2, 3, 4, 5]
 start_socs = [20, 20, 30, 20, 25, 40]
 target_socs = [80, 70, 80, 90, 80, 70]
-target_times = [10, 16, 18, 18, 17, 20]
+target_times = [4, 16, 18, 18, 17, 20]
 start_times = [2, 2, 2, 2, 2, 2]
 bat_energies = [50, 50, 50, 50, 50, 50]
 
