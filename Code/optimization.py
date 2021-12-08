@@ -5,19 +5,18 @@ Klasse GridLineOptimizer, die ein Model zur Optimierung der Ladeleistungen von L
 erzeug. Um die Ergebnisse hinterher validieren zu können, ist auch direkt ein pandapower-Netz mit enthalten, mit dem
 man nach der Optimierung die Ergebnisse überprüfen kann.
 
-Eventuell macht die rolling horizon Betrachtung hier auch gar keinen Sinn? Weil sich ja noch keine Werte im Lauf der
-Zeit mal zufällig ändern (wie das in der Realität der Fall wäre). Vielleicht genügt ja ein Durchlauf mit dem 24std
-Horizont - oder der Fehler liegt einfach in der Logik von store_results
+Roling horizon geht jetzt!! die Ergebnisse von den SOCs schauen genauso aus, wie beim fixed horizon. Allerdings schauen
+die Is komisch aus (obwohl die ja im Model mit den SOCs verknüpft sind?!) => irgendwo Fehler beim Auslesen der Is
+aus dem Model??
+
+Irgendiwe muss noch sichergestellt werden, dass die Optimierung nicht abschmiert, wenn die gewünschten SOCs zur
+gewünschten Uhrzeit nicht erreicht werden könne
 
 Beim upper und lower bounds von SOC und I auch mal so einstellen, dass da wirklich nur diejenigen Zeitpunkte drin sind,
 an denen wirklich geladen wird **
 
 bei prepare_soc_upper- und -lower_bounds noch dafür sorgen, dass als lower bound beim t_target vom jeweiligen BEV
 auch wirklich der soc_target steht
-
-beim bisherigen updaten der upper- und lower bounds war auch der Fehler, wenn der current_timestep größer als t_target
-ist, dann wird bei den lower bounds (wo dann dann der soc_target gesetzt wird) sich eine negative Zahl ergeben und die
-List so von hinten her durchgezählt => da kommt dann quatsch raus!!
 
 Versionsgeschichte:
 V.1: upper und lower bounds der Variables als dict für die einzelnen timesteps => dadurch entfällt die Subtarktion
@@ -164,8 +163,9 @@ class GridLineOptimizer:
 
     def _prepare_i_upper_bounds(self):
         i_upper_bounds = {bev.home_bus: {t: 27 for t in self.times} for bev in self.bevs.values()}
-        for bev in self.bevs.values():
-            i_upper_bounds[bev.home_bus][bev.t_start] = 0
+        #for bev in self.bevs.values():
+            #if bev.t_start >= self.current_timestep:
+                #i_upper_bounds[bev.home_bus][bev.t_start] = 0
         self.i_upper_bounds = i_upper_bounds
 
 
@@ -183,7 +183,9 @@ class GridLineOptimizer:
     def _prepare_soc_lower_bounds(self):
         soc_lower_bounds = {bev.home_bus: {t: bev.soc_start for t in self.times} for bev in self.bevs.values()}
         for bev in self.bevs.values():
-            soc_lower_bounds[bev.home_bus][bev.t_target - self.current_timestep] = bev.soc_target
+            # alle werte von current_timestep
+            #soc_lower_bounds[bev.home_bus][bev.t_target - self.current_timestep] = bev.soc_target
+            soc_lower_bounds[bev.home_bus][bev.t_target] = bev.soc_target
         self.soc_lower_bounds = soc_lower_bounds
 
 
@@ -407,17 +409,6 @@ class GridLineOptimizer:
         Optimierungsmodel ab und speichert diese.
         :return:
         """
-        #for num, bev in enumerate(self.bevs):
-            # immer vom ersten (also aktuellen) timestep den entsprechenden SOC
-            # wählen
-            #SOC = self.optimization_model.SOC[self.current_timestep, num].value
-            #bev.enter_soc(SOC)
-
-        #for bus in self.buses:
-            # immer vom ersten (also aktuellen) timestep den entsprechenden I
-            # wählen
-            #I = self.optimization_model.I[self.current_timestep, bus].value
-            #self.results_I[bus].append(I)
         for bus in self.bevs:  # das liefert ja die home_buses
             # Werte aus model abfragen
             SOC = self.optimization_model.SOC[self.current_timestep, bus].value
