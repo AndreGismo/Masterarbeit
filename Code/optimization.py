@@ -525,6 +525,47 @@ class GridLineOptimizer:
             plt.show()
 
 
+    def resample_data(func):
+        def inner(self, *args, **kwargs):
+            data = func(self, *args, **kwargs)
+            data = pd.DataFrame(data)
+            # datetimeIndex for resampling
+            data.index = pd.date_range(start='2020', periods=len(data), freq=str(self.resolution)+'min')
+            # do the resampling
+            data_res = data.resample('1min').interpolate()
+            return data_res
+
+        return inner
+
+
+    @resample_data
+    def provide_data(self, dtype):
+        """
+        provides data (the currents for each charger at each timestep) in a fashion that is digestable for
+        the EMO.sim_handler.run_sim => dict of dicts or dict of lists
+        e.g.:
+        {                                        or: {
+        bus1: {ts1: x, ts2: x, ...., tsn: x},         bus1: [x, x, ..., x],
+        bus2: {ts1: x, ts2: x, ..., tsn: x},          bus2: [x, x, ..., x],
+         .                                             .
+         .                                             .
+         .                                             .
+        busn: {ts1: x, ts2: x, ..., tsn: x}           busn: [x, x, ..., x]
+        }                                            }
+        :return: dict
+        """
+        if dtype not in ['dict', 'list']:
+            raise ValueError("dtype needs to be 'dict' or 'list'.")
+
+        if dtype == 'dict':
+            return {bus: {time: self.optimization_model.I[time, bus].value for time in self.times}
+                    for bus in self.optimization_model.charger_buses}
+
+        elif dtype == 'list':
+            return {bus: [self.optimization_model.I[time, bus].value for time in self.times]
+                    for bus in self.optimization_model.charger_buses}
+
+
 
 if __name__ == '__main__':
     t0 = time.time()
