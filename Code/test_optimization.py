@@ -60,6 +60,7 @@ if not ROLLING:
     test.run_optimization_single_timestep(tee=True)
     test.optimization_model.SOC.pprint()
     test.plot_results(marker='o')
+    print(test.provide_data())
 
 else:
     test.run_optimization_rolling_horizon(24, tee=False)

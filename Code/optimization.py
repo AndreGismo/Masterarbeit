@@ -525,6 +525,24 @@ class GridLineOptimizer:
             plt.show()
 
 
+    def provide_data(self):
+        """
+        provides data (e.g. currents for each charger at each timestep) in a fashion that is digestable for
+        the EMO.sim_handler.run_sim => dict of dicts
+        {
+        bus1: {ts1: x, ts2: x, ...., tsn: x},
+        bus2: {ts1: x, ts2: x, ..., tsn: x},
+         .
+         .
+         .
+        busn: {ts1: x, ts2: x, ..., tsn: x}
+         }
+        :return: dict
+        """
+        return {bus: {time: self.optimization_model.I[time, bus].value for time in self.times}
+                for bus in self.optimization_model.charger_buses}
+
+
 
 if __name__ == '__main__':
     t0 = time.time()
