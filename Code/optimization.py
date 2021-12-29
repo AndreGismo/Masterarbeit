@@ -316,7 +316,7 @@ class GridLineOptimizer:
 
 
         def max_current_rule(model, t):
-            return sum(model.I[t, b] for b in model.charger_buses) + sum(model.household_currents[t, b] for b in model.buses) <= model.i_max
+            return sum(model.I[ti, b] for (ti, b) in model.occupancy_times) + sum(model.household_currents[t, b] for b in model.buses) <= model.i_max
 
 
         def track_socs_rule(model, t, b):
