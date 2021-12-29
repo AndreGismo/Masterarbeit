@@ -526,12 +526,16 @@ class GridLineOptimizer:
 
 
     def resample_data(func):
+        '''
+        resample and interpolate the requested data so it suits the EMOs demand
+        :return: resampled DataFrame
+        '''
         def inner(self, *args, **kwargs):
             data = func(self, *args, **kwargs)
             data = pd.DataFrame(data)
             # datetimeIndex for resampling
             data.index = pd.date_range(start='2020', periods=len(data), freq=str(self.resolution)+'min')
-            # do the resampling
+            # do the resampling and interpolate
             data_res = data.resample('1min').interpolate()
             return data_res
 
