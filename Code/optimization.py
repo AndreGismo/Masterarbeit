@@ -294,7 +294,7 @@ class GridLineOptimizer:
             #return (self.i_lower_bounds[bus][time-self.current_timestep], self.i_upper_bounds[bus][time-self.current_timestep])
             return (self.i_lower_bounds[bus][time], self.i_upper_bounds[bus][time])
 
-        model.I = pe.Var(model.times*model.charger_buses, domain=pe.NonNegativeReals, bounds=get_i_bounds)
+        model.I = pe.Var(model.occupancy_times, domain=pe.NonNegativeReals, bounds=get_i_bounds)
         model.SOC = pe.Var(model.times*model.charger_buses, domain=pe.PositiveReals, bounds=get_soc_bounds)
 
         # Zielfunktion erzeugen
@@ -311,7 +311,7 @@ class GridLineOptimizer:
         # Restriktionen festlegen
         def min_voltage_rule(model, t):
             return model.voltages[0] - sum(model.impedances[i] * (sum(model.household_currents[t, j] for j in model.buses if j > i)
-                                                                  +sum(model.I[t, j] for j in model.charger_buses if j > i))
+                                                                  +sum(model.I[t, b] for (t, b) in model.occupancy_times if b > i))
                                            for i in model.lines) >= model.u_min
 
 
