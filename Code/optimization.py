@@ -308,6 +308,19 @@ class GridLineOptimizer:
 
         model.max_power = pe.Objective(rule=max_power_rule, sense=pe.maximize)
 
+        def _check_sync(model, ti):
+            """
+            Helper function. Checks for timestep t which of the buses of model.buses are
+            charging. Is called inside max_current_rule to ensure that only equal timesteps
+            for model.I and model.household_currents are added.
+            :param model:
+            :param t:
+            :return: active_buses
+            """
+            active_buses = [b for (t, b) in model.occupancy_times if ti in (t, b)]
+            return active_buses
+
+
         # Restriktionen festlegen
         def min_voltage_rule(model, t):
             return model.voltages[0] - sum(model.impedances[i] * (sum(model.household_currents[t, j] for j in model.buses if j > i)
@@ -316,6 +329,8 @@ class GridLineOptimizer:
 
 
         def max_current_rule(model, t):
+            buses = _check_sync(model, t)
+            print('aktive Busse zum Zeitpunkt', t, ':', buses)
             return sum(model.I[ti, b] for (ti, b) in model.occupancy_times) + sum(model.household_currents[t, b] for b in model.buses) <= model.i_max
 
 
@@ -392,6 +407,9 @@ class GridLineOptimizer:
                                                x_ohm_per_km=0, c_nf_per_km=0, max_i_ka=0.142)
 
             return grid
+
+
+    def export_grid(self):
 
 
     def display_target_function(self):
