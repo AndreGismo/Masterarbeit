@@ -426,6 +426,17 @@ class GridLineOptimizer:
             buses_df.to_excel(writer, sheet_name='Busses', index=False)
 
 
+    def export_household_profiles(self):
+        num_timesteps = int(self.horizon_width * 60 / self.resolution)
+        return {household.home_bus: household.load_profile[0:num_timesteps] for household in self.households}
+
+
+    def export_I_results(self):
+        num_timesteps = int(self.horizon_width * 60 / self.resolution)
+        return {bev: [self.optimization_model.I[t, bev].value for t in self.times]
+                for bev in self.bevs.keys()}
+
+
     def get_grid_specs(self):
         specs = {'buses': self.number_buses,
                  'S transformer': self.s_trafo,
