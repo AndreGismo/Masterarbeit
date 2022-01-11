@@ -18,6 +18,8 @@ an denen wirklich geladen wird **
 bei prepare_soc_upper- und -lower_bounds noch dafür sorgen, dass als lower bound beim t_target vom jeweiligen BEV
 auch wirklich der soc_target steht
 
+R von 0.04 auf 0.004 (was realistischer ist, für Leitungen von ca. 15m länge und 0.255 Ohm/km spezifischem Widerstand)
+
 Versionsgeschichte:
 V.1: upper und lower bounds der Variables als dict für die einzelnen timesteps => dadurch entfällt die Subtarktion
 des current_timestep beim Auslesen der bounds im model, außerdem intuitiver indexieren
@@ -81,7 +83,7 @@ class GridLineOptimizer:
     global _pandas_available
     global _matplotlib_available
 
-    def __init__(self, number_buses, bevs, households, charger_locs=None, horizon_width=24, impedance=0.04,
+    def __init__(self, number_buses, bevs, households, charger_locs=None, horizon_width=24, impedance=0.004,
                  voltages=None, impedances=None, resolution=60, s_trafo_kVA=100, solver='glpk'):
         self.current_timestep = 0
         self.resolution = resolution
@@ -216,7 +218,7 @@ class GridLineOptimizer:
 
 
     def _make_impedances(self):
-        return {i: self.impedance for i in self.lines}  # 0.04
+        return {i: self.impedance for i in self.lines}  # 0.004
 
 
     def _prepare_next_timestep(self):
@@ -379,6 +381,58 @@ class GridLineOptimizer:
                                                x_ohm_per_km=0, c_nf_per_km=0, max_i_ka=0.142)
 
             return grid
+
+
+    def export_grid(self):
+        """
+        create an excel file called 'optimized_grid.xlsx' containing all the
+        information of the optimized grid, that the EMO needs to construct a
+        pandas grid from, using LowVoltageSystem.make_system_from_excel_file
+        :return: None
+        """
+        num_buses = 2 + self.number_buses
+        # for the sheet 'Lines'
+        line_no = [i for i in range(num_buses-2)]
+        from_bus = [i+1 for i in range(num_buses-2)]
+        to_bus = [i+2 for i in range(num_buses-2)]
+        length = [15 for _ in range(num_buses-2)]
+
+        lines_dict = {'Line No.': line_no,
+                      'From Bus': from_bus,
+                      'To Bus': to_bus,
+                      'Length': length}
+
+        lines_df = pd.DataFrame(lines_dict)
+
+        # for the sheet 'Buses'
+        home_buses = [i+2 for i in self.bevs.keys()] # helper, since enumeration for bevs begins at 0
+        bus_no = [i for i in range(num_buses)]
+        x = bus_no # +1 in x-direction for each bus
+        y = [0 for _ in range(num_buses)]
+        household = ['No' if i < 2 else 'Yes' for i in range(num_buses)]
+        wallbox = ['Yes' if i in home_buses else 'No' for i in range(num_buses)]
+
+        buses_dict = {'Bus No.': bus_no,
+                      'X': x,
+                      'Y': y,
+                      'Household': household,
+                      'Wallbox': wallbox}
+
+        buses_df = pd.DataFrame(buses_dict)
+
+        # write to excel file
+        with pd.ExcelWriter('optimized_grid.xlsx') as writer:
+            lines_df.to_excel(writer, sheet_name='Lines', index=False)
+            buses_df.to_excel(writer, sheet_name='Busses', index=False)
+
+
+    def get_grid_specs(self):
+        specs = {'buses': self.number_buses,
+                 'S transformer': self.s_trafo,
+                 'line impedance': self.impedance,
+                 'i line max': self.i_max}
+
+        return specs
 
 
     def display_target_function(self):
