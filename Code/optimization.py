@@ -383,7 +383,7 @@ class GridLineOptimizer:
             return grid
 
 
-    def export_grid(self):
+    def export_grid(self, filename):
         """
         create an excel file called 'optimized_grid.xlsx' containing all the
         information of the optimized grid, that the EMO needs to construct a
@@ -421,7 +421,7 @@ class GridLineOptimizer:
         buses_df = pd.DataFrame(buses_dict)
 
         # write to excel file
-        with pd.ExcelWriter('optimized_grid.xlsx') as writer:
+        with pd.ExcelWriter('grids/{}.xlsx'.format(filename)) as writer:
             lines_df.to_excel(writer, sheet_name='Lines', index=False)
             buses_df.to_excel(writer, sheet_name='Busses', index=False)
 
