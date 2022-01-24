@@ -22,6 +22,8 @@ an denen wirklich geladen wird **
 bei prepare_soc_upper- und -lower_bounds noch dafür sorgen, dass als lower bound beim t_target vom jeweiligen BEV
 auch wirklich der soc_target steht
 
+R von 0.04 auf 0.004 (was realistischer ist, für Leitungen von ca. 15m länge und 0.255 Ohm/km spezifischem Widerstand)
+
 Versionsgeschichte:
 V.1: upper und lower bounds der Variables als dict für die einzelnen timesteps => dadurch entfällt die Subtarktion
 des current_timestep beim Auslesen der bounds im model, außerdem intuitiver indexieren
@@ -85,7 +87,7 @@ class GridLineOptimizer:
     global _pandas_available
     global _matplotlib_available
 
-    def __init__(self, number_buses, bevs, households, charger_locs=None, horizon_width=24, impedance=0.04,
+    def __init__(self, number_buses, bevs, households, charger_locs=None, horizon_width=24, impedance=0.004,
                  voltages=None, impedances=None, resolution=60, s_trafo_kVA=100, solver='glpk'):
         self.current_timestep = 0
         self.resolution = resolution
@@ -227,7 +229,7 @@ class GridLineOptimizer:
 
 
     def _make_impedances(self):
-        return {i: self.impedance for i in self.lines}  # 0.04
+        return {i: self.impedance for i in self.lines}  # 0.004
 
 
     def _prepare_next_timestep(self):
@@ -299,8 +301,8 @@ class GridLineOptimizer:
 
         # Zielfunktion erzeugen
         def max_power_rule(model):
-            #return sum(sum(model.voltages[i]*model.I[j, i]for i in model.charger_buses) for j in model.times)
-            return sum(model.voltages_tf[t, b] * model.I[t, b] for (t, b) in model.occupancy_times)
+            return sum(sum(model.voltages[i]*model.I[j, i]for i in model.charger_buses) for j in model.times)
+            #return sum(model.voltages_tf[t, b] * model.I[t, b] for (t, b) in model.occupancy_times)
             #return sum(sum(model.SOC[t+1, b] - model.SOC[t, b] for b in model.charger_buses if t < len(model.times)-1) for t in model.times)
             #return sum(sum(model.SOC[t, b] - model.SOC[model.times.prevw(t), b] for b in model.charger_buses) for t in model.times)
             #return sum(sum(model.voltages[i] * model.I[j, i]*model.time_costs[j] for i in model.charger_buses) for j in model.times)
@@ -363,6 +365,11 @@ class GridLineOptimizer:
 
 
     def _setup_grid(self):
+        """
+        create pandapower grid to check the results of optimization. Not needed anymore, because
+        the EMO is used for simulating the grid
+        :return: pandapower grid
+        """
         if not _pandapower_available:
             print('\nWARNING: unable to create grid\n')
             return None
@@ -392,6 +399,69 @@ class GridLineOptimizer:
                                                x_ohm_per_km=0, c_nf_per_km=0, max_i_ka=0.142)
 
             return grid
+
+
+    def export_grid(self, filename):
+        """
+        create an excel file called 'optimized_grid.xlsx' containing all the
+        information of the optimized grid, that the EMO needs to construct a
+        pandas grid from, using LowVoltageSystem.make_system_from_excel_file
+        :return: None
+        """
+        num_buses = 2 + self.number_buses
+        # for the sheet 'Lines'
+        line_no = [i for i in range(num_buses-2)]
+        from_bus = [i+1 for i in range(num_buses-2)]
+        to_bus = [i+2 for i in range(num_buses-2)]
+        length = [15 for _ in range(num_buses-2)]
+
+        lines_dict = {'Line No.': line_no,
+                      'From Bus': from_bus,
+                      'To Bus': to_bus,
+                      'Length': length}
+
+        lines_df = pd.DataFrame(lines_dict)
+
+        # for the sheet 'Buses'
+        home_buses = [i+2 for i in self.bevs.keys()] # helper, since enumeration for bevs begins at 0
+        bus_no = [i for i in range(num_buses)]
+        x = bus_no # +1 in x-direction for each bus
+        y = [0 for _ in range(num_buses)]
+        household = ['No' if i < 2 else 'Yes' for i in range(num_buses)]
+        wallbox = ['Yes' if i in home_buses else 'No' for i in range(num_buses)]
+
+        buses_dict = {'Bus No.': bus_no,
+                      'X': x,
+                      'Y': y,
+                      'Household': household,
+                      'Wallbox': wallbox}
+
+        buses_df = pd.DataFrame(buses_dict)
+
+        # write to excel file
+        with pd.ExcelWriter('grids/{}.xlsx'.format(filename)) as writer:
+            lines_df.to_excel(writer, sheet_name='Lines', index=False)
+            buses_df.to_excel(writer, sheet_name='Busses', index=False)
+
+
+    def export_household_profiles(self):
+        num_timesteps = int(self.horizon_width * 60 / self.resolution)
+        return {household.home_bus: household.load_profile[0:num_timesteps] for household in self.households}
+
+
+    def export_I_results(self):
+        num_timesteps = int(self.horizon_width * 60 / self.resolution)
+        return {bev: [self.optimization_model.I[t, bev].value for t in self.times]
+                for bev in self.bevs.keys()}
+
+
+    def get_grid_specs(self):
+        specs = {'buses': self.number_buses,
+                 'S transformer': self.s_trafo,
+                 'line impedance': self.impedance,
+                 'i line max': self.i_max}
+
+        return specs
 
 
     def display_target_function(self):
