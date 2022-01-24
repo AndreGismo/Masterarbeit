@@ -15,7 +15,7 @@ from household import Household as HH
 
 import matplotlib.pyplot as plt
 
-ROLLING = False
+ROLLING = True
 
 resolution = 15
 buses = 6
@@ -28,8 +28,8 @@ s_trafo = 150  #kVA
 home_buses = [0, 1, 2, 3, 4, 5]
 start_socs = [20, 20, 30, 20, 25, 40]
 target_socs = [80, 70, 80, 90, 80, 70]
-target_times = [10, 16, 18, 18, 17, 20]
-start_times = [2, 2, 2, 2, 2, 2]
+target_times = [12, 16, 18, 18, 17, 20]
+start_times = [10, 2, 2, 2, 2, 2]
 bat_energies = [50, 50, 50, 50, 50, 50]
 
 # Households
@@ -50,6 +50,8 @@ for bus in bus_lst:
     household = HH(home_bus=bus, annual_demand=ann_dems[bus], resolution=resolution)
     household.raise_demand(11, 19, 23500)
     household_list.append(household)
+
+GLO.set_options('distribute_loadings', False)
 
 test = GLO(number_buses=buses, bevs=bev_list, resolution=resolution, s_trafo_kVA=s_trafo,
            households=household_list, horizon_width=24)
