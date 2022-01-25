@@ -173,9 +173,14 @@ class GridLineOptimizer:
 
     def _prepare_i_upper_bounds(self):
         i_upper_bounds = {bev.home_bus: {t: 27 for t in self.times} for bev in self.bevs.values()}
+        # hier schon dafür sorgen, dass an denjenigen Stellen, wo das entsprechende BEV
+        # nicht an der Ladesäule steht, upper_bound zu 0 gesetzt wird
         for bev in self.bevs.values():
-            if bev.t_start >= self.current_timestep:
-                i_upper_bounds[bev.home_bus][bev.t_start] = 0
+            #if bev.t_start >= self.current_timestep:
+                #i_upper_bounds[bev.home_bus][bev.t_start] = 0
+            if self.current_timestep < bev.t_start:
+                i_upper_bounds[bev.home_bus].update({t: 0 for t in self.times if t < bev.t_start})
+                i_upper_bounds[bev.home_bus].update({t: 0 for t in self.times if t > bev.t_target})
         self.i_upper_bounds = i_upper_bounds
 
 
@@ -195,7 +200,8 @@ class GridLineOptimizer:
         for bev in self.bevs.values():
             # alle werte von current_timestep
             #soc_lower_bounds[bev.home_bus][bev.t_target - self.current_timestep] = bev.soc_target
-            soc_lower_bounds[bev.home_bus][bev.t_target] = bev.soc_target
+            #soc_lower_bounds[bev.home_bus][bev.t_target] = bev.soc_target
+            pass
         self.soc_lower_bounds = soc_lower_bounds
 
 
@@ -255,6 +261,8 @@ class GridLineOptimizer:
             self.soc_lower_bounds[bev.home_bus][self.current_timestep] = SOCs2[num]
             self.soc_upper_bounds[bev.home_bus][self.current_timestep] = SOCs2[num]
 
+        print('SOC:', self.soc_upper_bounds)
+
         self._prepare_i_lower_bounds()
         self._prepare_i_upper_bounds()
 
@@ -277,13 +285,10 @@ class GridLineOptimizer:
             elif self.current_timestep >= self.bevs[bev].t_start and self.current_timestep < self.bevs[bev].t_target:
                 self.i_upper_bounds[bev].update({t: 0 for t in range(self.bevs[bev].t_target, self.current_timestep+
                                                                      int(60/self.resolution*self.horizon_width))})
-
+            # wenn der curren_timestep größer t_target, dann alles zu 0 setzen
             elif self.current_timestep >= self.bevs[bev].t_target:
                 self.i_upper_bounds[bev].update({t: 0 for t in range(self.current_timestep, self.current_timestep+
                                                                      int(60/self.resolution*self.horizon_width))})
-
-
-
 
 
     def _setup_model(self):
