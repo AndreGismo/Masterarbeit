@@ -15,7 +15,7 @@ from household import Household as HH
 
 import matplotlib.pyplot as plt
 
-ROLLING = True
+ROLLING = False
 
 resolution = 15
 buses = 6
@@ -28,8 +28,8 @@ s_trafo = 150  #kVA
 home_buses = [0, 1, 2, 3, 4, 5]
 start_socs = [20, 20, 30, 20, 25, 40]
 target_socs = [80, 70, 80, 90, 80, 70]
-target_times = [10, 16, 18, 18, 17, 20]
-start_times = [2, 2, 2, 2, 2, 2]
+target_times = [12, 16, 18, 18, 17, 20]
+start_times = [10, 2, 2, 2, 2, 2]
 bat_energies = [50, 50, 50, 50, 50, 50]
 
 # Households
@@ -51,6 +51,8 @@ for bus in bus_lst:
     household.raise_demand(11, 19, 23500)
     household_list.append(household)
 
+GLO.set_options('distribute_loadings', True)
+
 test = GLO(number_buses=buses, bevs=bev_list, resolution=resolution, s_trafo_kVA=s_trafo,
            households=household_list, horizon_width=24)
 
@@ -60,6 +62,10 @@ if not ROLLING:
     test.run_optimization_single_timestep(tee=True)
     test.optimization_model.SOC.pprint()
     test.plot_results(marker='o')
+    #test.export_grid()
+    res_I = test.export_I_results()
+    print(res_I)
+
 
 else:
     test.run_optimization_rolling_horizon(24, tee=False)
@@ -68,6 +74,10 @@ else:
 
     for i in range(len(bev_lst)):
         plt.plot(range(len(test.results_I[0])), test.results_SOC[i], marker='o')
+    plt.show()
+
+    for i in range(len(bev_lst)):
+        plt.plot(range(len(test.results_I[0])), test.results_I[i], marker='o')
     plt.show()
 
 
