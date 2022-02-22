@@ -179,9 +179,22 @@ class GridLineOptimizer:
         for bev in self.bevs.values():
             #if bev.t_start >= self.current_timestep:
                 #i_upper_bounds[bev.home_bus][bev.t_start] = 0
+            # if the current_timestep is below bev.t_start, than ...
             if self.current_timestep < bev.t_start:
+                # ... all the times before t_start there has to be 0
                 i_upper_bounds[bev.home_bus].update({t: 0 for t in self.times if t < bev.t_start})
+                # and the same for all the times after t_target
                 i_upper_bounds[bev.home_bus].update({t: 0 for t in self.times if t > bev.t_target})
+            # if the current_timestep is between t_start and t_target, than ...
+            elif bev.t_start <= self.current_timestep and self.current_timestep < bev.t_target:
+                # ... all the times after t_target have to be 0
+                i_upper_bounds[bev.home_bus].update({t: 0 for t in self.times if t > bev.t_target})
+            # if the current_timestep is is above t_target ...
+            elif self.current_timestep >= bev.t_start:
+                # all the times have to be 0
+                i_upper_bounds[bev.home_bus].update({t: 0 for t in self.times})
+
+
         self.i_upper_bounds = i_upper_bounds
 
 
@@ -262,34 +275,34 @@ class GridLineOptimizer:
             self.soc_lower_bounds[bev.home_bus][self.current_timestep] = SOCs2[num]
             self.soc_upper_bounds[bev.home_bus][self.current_timestep] = SOCs2[num]
 
-        print('SOC:', self.soc_upper_bounds)
+        #print('SOC:', self.soc_upper_bounds)
 
         self._prepare_i_lower_bounds()
         self._prepare_i_upper_bounds()
 
         # hier jetzt die i_upper_bound überall zu 0 setzen, wo das BEV nicht am
         # Ladepunkt steht
-        for bev in self.bevs.keys():
-            # wenn der current_timestep kleiner als t_start: alles vor und nach der Zeit, zu der
-            # das BEV am Laden ist gleich 0
-            if self.current_timestep < self.bevs[bev].t_start:
-                print('BEV am Knoten:', bev)
-                # everything before t_start set to 0
-                self.i_upper_bounds[bev].update({t: 0 for t in range(self.current_timestep, self.bevs[bev].t_start)})
-                # everything after t_target set to 0
-                self.i_upper_bounds[bev].update({t: 0 for t in range(self.bevs[bev].t_target, self.current_timestep+
-                                                                    int(60/self.resolution*self.horizon_width))})
-                print(self.i_upper_bounds)
-
-            # wenn der current_timestep zwischen t_start und t_target liegt: alles nach t_target zu
-            # 0 setzen
-            elif self.current_timestep >= self.bevs[bev].t_start and self.current_timestep < self.bevs[bev].t_target:
-                self.i_upper_bounds[bev].update({t: 0 for t in range(self.bevs[bev].t_target, self.current_timestep+
-                                                                     int(60/self.resolution*self.horizon_width))})
-            # wenn der curren_timestep größer t_target, dann alles zu 0 setzen
-            elif self.current_timestep >= self.bevs[bev].t_target:
-                self.i_upper_bounds[bev].update({t: 0 for t in range(self.current_timestep, self.current_timestep+
-                                                                     int(60/self.resolution*self.horizon_width))})
+        # for bev in self.bevs.keys():
+        #     # wenn der current_timestep kleiner als t_start: alles vor und nach der Zeit, zu der
+        #     # das BEV am Laden ist gleich 0
+        #     if self.current_timestep < self.bevs[bev].t_start:
+        #         #print('BEV am Knoten:', bev)
+        #         # everything before t_start set to 0
+        #         self.i_upper_bounds[bev].update({t: 0 for t in range(self.current_timestep, self.bevs[bev].t_start)})
+        #         # everything after t_target set to 0
+        #         self.i_upper_bounds[bev].update({t: 0 for t in range(self.bevs[bev].t_target, self.current_timestep+
+        #                                                             int(60/self.resolution*self.horizon_width))})
+        #         #print(self.i_upper_bounds)
+        #
+        #     # wenn der current_timestep zwischen t_start und t_target liegt: alles nach t_target zu
+        #     # 0 setzen
+        #     elif self.current_timestep >= self.bevs[bev].t_start and self.current_timestep < self.bevs[bev].t_target:
+        #         self.i_upper_bounds[bev].update({t: 0 for t in range(self.bevs[bev].t_target, self.current_timestep+
+        #                                                              int(60/self.resolution*self.horizon_width))})
+        #     # wenn der curren_timestep größer t_target, dann alles zu 0 setzen
+        #     elif self.current_timestep >= self.bevs[bev].t_target:
+        #         self.i_upper_bounds[bev].update({t: 0 for t in range(self.current_timestep, self.current_timestep+
+        #                                                              int(60/self.resolution*self.horizon_width))})
 
 
     def _setup_model(self):
