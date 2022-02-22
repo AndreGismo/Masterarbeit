@@ -22,9 +22,17 @@ class Household:
         self.load_profile = pd.read_csv(type(self)._data_source)
         self.load_profile *= self.annual_demand/type(self)._e_norm
         self.load_profile.index = pd.date_range('2021', periods=type(self)._len_norm, freq=type(self)._res_norm)
-        if not self.resolution == type(self)._res_norm:
-            #wenn die gewünschte Auflösung eine andere ist als die gegebene, dann resamplen
+        asked_res = int(self.resolution.rstrip('min'))
+        nom_res = int(type(self)._res_norm.rstrip('min'))
+
+        # wenn die gewünschte Auflösung eine andere ist als die gegebene, dann resamplen
+        # wenn größer, dann Mittelwerte aggregieren
+        if asked_res >= nom_res:
             self.load_profile = self.load_profile.resample(self.resolution).mean()
+
+        else:
+            self.load_profile = self.load_profile.resample(self.resolution).interpolate()
+
         self.load_profile = self.load_profile.values
 
 
@@ -54,8 +62,8 @@ class Household:
 
 
 if __name__ == '__main__':
-    slp = Household(5, 5000, resolution=15)
-    slp.raise_demand(10, 14, 1200, recurring='weekly')
+    slp = Household(5, 5000, resolution=5)
+    #slp.raise_demand(10, 14, 1200, recurring='weekly')
     slp.plot_load_profile()
 
 

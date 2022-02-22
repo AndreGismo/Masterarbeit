@@ -17,7 +17,7 @@ import matplotlib.pyplot as plt
 
 ROLLING = False
 
-resolution = 15
+resolution = 10
 buses = 6
 bevs = 6
 bev_lst = list(range(bevs))
@@ -51,7 +51,7 @@ for bus in bus_lst:
     household.raise_demand(11, 19, 23500)
     household_list.append(household)
 
-GLO.set_options('distribute_loadings', True)
+#GLO.set_options('distribute_loadings', True)
 
 test = GLO(number_buses=buses, bevs=bev_list, resolution=resolution, s_trafo_kVA=s_trafo,
            households=household_list, horizon_width=24)

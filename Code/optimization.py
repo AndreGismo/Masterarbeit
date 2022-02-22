@@ -346,7 +346,7 @@ class GridLineOptimizer:
 
         # Zielfunktion erzeugen
         def max_power_rule(model):
-            return sum(sum(model.voltages[i]*model.I[j, i]for i in model.charger_buses) for j in model.times)
+            return sum(sum(model.voltages[i]*model.I[j, i] for i in model.charger_buses) for j in model.times)
             #return sum(model.voltages_tf[t, b] * model.I[t, b] for (t, b) in model.occupancy_times)
             #return sum(sum(model.SOC[t+1, b] - model.SOC[t, b] for b in model.charger_buses if t < len(model.times)-1) for t in model.times)
             #return sum(sum(model.SOC[t, b] - model.SOC[model.times.prevw(t), b] for b in model.charger_buses) for t in model.times)
@@ -369,7 +369,7 @@ class GridLineOptimizer:
         def track_socs_rule(model, t, b):
             # schauen, dass man immer nur bis zum vorletzten timestep geht (weil es
             # sonst kein t+1 mehr geben würde beim letzten timestep)
-            if t < self.current_timestep + self.horizon_width*60/self.resolution-1:#23:
+            if t < self.current_timestep + self.horizon_width * int(60/self.resolution) - 1:#23:
             #if t >= self.bevs[b].t_start and t <= self.bevs[b].t_target:
                 return (model.SOC[t, b] + model.I[t, b] * model.voltages[b] * self.resolution/60 / 1000
                         / self.bevs[b].e_bat*100 - model.SOC[t+1, b]) == 0
@@ -400,7 +400,6 @@ class GridLineOptimizer:
         model.min_voltage = pe.Constraint(model.times, rule=min_voltage_rule)
         model.max_current = pe.Constraint(model.times, rule=max_current_rule)
         model.track_socs = pe.Constraint(model.times*model.charger_buses, rule=track_socs_rule)
-        #model.track_socs = pe.Constraint(model.occupancy_times, rule=track_socs_rule)
         # mit diesem Constraint kommt dasselbe raus, als hätte man nur track_socs aktiv
         model.ensure_final_soc = pe.Constraint(model.buses, rule=ensure_final_soc_rule)
         if type(self)._OPTIONS['distribute loadings'] == True:
