@@ -259,7 +259,7 @@ class GridLineOptimizer:
         self._make_times()
         # Ergebnisse des zweiten timesteps des vorherigen horizons nehmen und an
         # die erste Stelle der soc_upper und lower_bounds schreiben (dasselbe auch
-        # für I? => nein, weil kein Speicher!)
+        # für I? => nein, weil kein Speicher! (oder doch?!))
         SOCs2 = []
         #SOCs2 = {bus: None for bus in self.bevs}
         for bus in self.bevs:
@@ -275,10 +275,19 @@ class GridLineOptimizer:
             self.soc_lower_bounds[bev.home_bus][self.current_timestep] = SOCs2[num]
             self.soc_upper_bounds[bev.home_bus][self.current_timestep] = SOCs2[num]
 
+        #Is2 = []
+
+        #for bus in self.bevs:
+            #Is2.append(self.optimization_model.I[self.current_timestep + 1, bus].value)
+
         #print('SOC:', self.soc_upper_bounds)
 
         self._prepare_i_lower_bounds()
         self._prepare_i_upper_bounds()
+
+        #for num, bev in enumerate(self.bevs.values()):
+            #self.i_lower_bounds[bev.home_bus][self.current_timestep] = Is2[num]
+            #self.i_upper_bounds[bev.home_bus][self.current_timestep] = Is2[num]
 
         # hier jetzt die i_upper_bound überall zu 0 setzen, wo das BEV nicht am
         # Ladepunkt steht
@@ -540,7 +549,7 @@ class GridLineOptimizer:
         for bus in self.bevs:  # das liefert ja die home_buses
             # Werte aus model abfragen
             SOC = self.optimization_model.SOC[self.current_timestep, bus].value
-            I = self.optimization_model.I[self.current_timestep, bus].value
+            I = self.optimization_model.I[self.current_timestep+1, bus].value # +1 dazu
             # und in Ergebnisliste eintragen
             self.results_SOC[bus].append(SOC)
             self.results_I[bus].append(I)
