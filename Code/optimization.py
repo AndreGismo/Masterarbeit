@@ -76,6 +76,8 @@ except ModuleNotFoundError:
     _networkx_available = False
 
 import time
+import os
+from os import path as op
 from battery_electric_vehicle import BatteryElectricVehicle as BEV
 from household import Household as HH
 
@@ -88,7 +90,8 @@ class GridLineOptimizer:
     global _matplotlib_available
 
 
-    _OPTIONS = {'distribute loadings': False}
+    _OPTIONS = {'distribute loadings': False,
+                'log results': False}
 
     def __init__(self, number_buses, bevs, households, charger_locs=None, horizon_width=24, impedance=0.004,
                  voltages=None, impedances=None, resolution=60, s_trafo_kVA=100, solver='glpk'):
@@ -355,7 +358,8 @@ class GridLineOptimizer:
 
         # Zielfunktion erzeugen
         def max_power_rule(model):
-            return sum(sum(model.voltages[i]*model.I[j, i] for i in model.charger_buses) for j in model.times)
+            #return sum(sum(model.voltages[i]*model.I[j, i] for i in model.charger_buses) for j in model.times)
+            return sum(sum(model.I[j, i] for i in model.charger_buses) for j in model.times)
             #return sum(model.voltages_tf[t, b] * model.I[t, b] for (t, b) in model.occupancy_times)
             #return sum(sum(model.SOC[t+1, b] - model.SOC[t, b] for b in model.charger_buses if t < len(model.times)-1) for t in model.times)
             #return sum(sum(model.SOC[t, b] - model.SOC[model.times.prevw(t), b] for b in model.charger_buses) for t in model.times)
@@ -538,6 +542,35 @@ class GridLineOptimizer:
         self.optimization_model.ensure_final_soc.pprint()
 
 
+    def log_results(self):
+        """
+        logs the results of the optimization to an external csv-file.
+        :return: None
+        """
+        # first check, if csv already exists
+        if not op.isdir('../Data/Results'):
+            os.mkdir('../Data/Results')
+
+        # create dict with optimization results
+        # results = {'timestep': self.current_timestep,
+        #            'SOC [%]': [self.optimization_model.SOC[self.current_timestep, bev].value for bev in self.bevs],
+        #            'I [A]': [self.optimization_model.I[self.current_timestep, bev].value for bev in self.bevs]
+        #            }
+
+        results = {f'current at node {bev}': [self.optimization_model.I[self.current_timestep+1, bev].value]
+                   for bev in self.bevs}
+        results['timestep'] = [self.current_timestep]
+
+        results = pd.DataFrame(results)
+
+        if not op.isfile('../Data/Results/results.csv'):
+            results.to_csv('../Data/Results/results.csv', index=False)
+
+        else:
+            results.to_csv('../Data/Results/results.csv', index=False, header=False, mode='a')
+
+
+
     # nach jedem Optimierungsdurchlauf die Ergebnisse aus dem Model und
     # die SOCs in den BEVs speichern, I hier irgendwo...
     def _store_results(self):
@@ -548,7 +581,7 @@ class GridLineOptimizer:
         """
         for bus in self.bevs:  # das liefert ja die home_buses
             # Werte aus model abfragen
-            SOC = self.optimization_model.SOC[self.current_timestep, bus].value
+            SOC = self.optimization_model.SOC[self.current_timestep, bus].value # +1 dazu
             I = self.optimization_model.I[self.current_timestep+1, bus].value # +1 dazu
             # und in Ergebnisliste eintragen
             self.results_SOC[bus].append(SOC)
@@ -558,7 +591,8 @@ class GridLineOptimizer:
     # simuliert einen Tag mit den Werten für einen Tag, fixer Horizont
     def run_optimization_single_timestep(self, **kwargs):
         self.solver_factory.solve(self.optimization_model, tee=kwargs['tee'])
-        #return list(self.optimization_model.I[:, :].value)
+        if type(self)._OPTIONS['log results']:
+            self.log_results()
 
 
     def run_optimization_rolling_horizon(self, complete_horizon, **kwargs):
@@ -630,21 +664,21 @@ class GridLineOptimizer:
 
             fig, ax = plt.subplots(2, 1, figsize=(15, 15), sharex=False)
             for column in SOCs_df.columns:
-                ax[0].plot(SOCs_df.index, SOCs_df[column], marker=kwargs['marker'], label=f'SOC der Batterie am Knoten {column}')
+                ax[0].plot(SOCs_df.index, SOCs_df[column], marker=kwargs['marker'], label=f'SOC of BEV at node {column}')
             if legend:
                 ax[0].legend()
             ax[0].grid()
             ax[0].set_ylabel('SOC [%]', fontsize=17)
-            ax[0].set_title('SOC über der Zeit - Ergebnisse der Optimierung', fontsize=20)
+            ax[0].set_title('SOC over time - results of optimization', fontsize=20)
 
             for column in Is_df.columns:
-                ax[1].plot(Is_df.index, Is_df[column], marker=kwargs['marker'], label=f'Strom in die Batterie am Knoten {column}')
+                ax[1].plot(Is_df.index, Is_df[column], marker=kwargs['marker'], label=f'Current to BEV at node {column}')
             if legend:
                 ax[1].legend()
             ax[1].grid()
-            ax[1].set_ylabel('Strom [A]', fontsize=17)
-            ax[1].set_xlabel('Zeitpunkt [MM-TT hh]', fontsize=17)
-            ax[1].set_title('Strom über der Zeit - Ergebnisse der Optimierung', fontsize=20)
+            ax[1].set_ylabel('Current [A]', fontsize=17)
+            ax[1].set_xlabel('Time [mm-dd hh]', fontsize=17)
+            ax[1].set_title('Current over time - results of optimization', fontsize=20)
 
             plt.show()
 
