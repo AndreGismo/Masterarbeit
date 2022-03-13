@@ -39,9 +39,11 @@ _pandapower_available = True
 _networkx_available = True
 _pandas_available = True
 _matplotlib_available = True
+_ipopt_available = True
 
 import pyomo.environ as pe
 import itertools as itt
+from distutils.spawn import find_executable
 
 try:
     import pandas as pd
@@ -75,6 +77,11 @@ except ModuleNotFoundError:
           'only available with networkx\n')
     _networkx_available = False
 
+if not find_executable('ipopt'):
+    print('\nWARNING: ipopt solver not available, solving NLP is not',
+          'supported without appropriate solver\n')
+    _ipopt_available = False
+
 import time
 import os
 from os import path as op
@@ -88,10 +95,12 @@ class GridLineOptimizer:
     global _networkx_available
     global _pandas_available
     global _matplotlib_available
+    global _ipopt_available
 
 
     _OPTIONS = {'distribute loadings': False,
-                'log results': False}
+                'log results': False,
+                'consider linear': True}
 
     def __init__(self, number_buses, bevs, households, charger_locs=None, horizon_width=24, impedance=0.004,
                  voltages=None, impedances=None, resolution=60, s_trafo_kVA=100, solver='glpk'):
@@ -106,12 +115,17 @@ class GridLineOptimizer:
             self.voltages = self._make_voltages()
         else:
             self.voltages = voltages
-        #self.i_max = 160   # 160
-        self.u_min = 0.9*400
+
+        self.u_trafo = 400
+        self.u_min = 0.9*self.u_trafo
         self.s_trafo = s_trafo_kVA
         self.i_max = s_trafo_kVA*1000 / 400
         self.impedance = impedance
-        self.solver = solver
+        if type(self)._OPTIONS['consider linear']:
+            self.solver = solver
+        else:
+            self.solver = 'ipopt'
+
         self.solver_factory = pe.SolverFactory(self.solver)
 
         if impedances == None:
@@ -326,13 +340,16 @@ class GridLineOptimizer:
         model.lines = pe.Set(initialize=self.lines)
         model.times = pe.Set(initialize=self.times)
         model.charger_buses = pe.Set(initialize=[bev.home_bus for bev in self.bevs.values()])
-        model.occupancy_times = pe.Set(initialize=self.occupancy_times)
+        #model.occupancy_times = pe.Set(initialize=self.occupancy_times)
 
-        # Parameter erzeugen
+        # create parameters
         model.impedances = pe.Param(model.lines, initialize=self.impedances)
-        model.voltages = pe.Param(model.buses, initialize=self.voltages)
-        model.voltages_tf = pe.Param(model.occupancy_times, initialize=self.voltages_tf)
+        if type(self)._OPTIONS['consider linear']:
+            # voltage as parameter, only if consider linear problem
+            model.voltages = pe.Param(model.buses, initialize=self.voltages)
+        #model.voltages_tf = pe.Param(model.occupancy_times, initialize=self.voltages_tf)
         model.u_min = self.u_min
+        model.u_trafo = self.u_trafo
         model.i_max = self.i_max
         model.time_costs = pe.Param(model.times, initialize={t: t for t in model.times})
 
@@ -355,11 +372,16 @@ class GridLineOptimizer:
 
         model.I = pe.Var(model.times*model.charger_buses, domain=pe.NonNegativeReals, bounds=get_i_bounds)
         model.SOC = pe.Var(model.times*model.charger_buses, domain=pe.PositiveReals, bounds=get_soc_bounds)
+        if not type(self)._OPTIONS['consider linear']:
+            model.U = pe.Var(model.times*model.buses, domain=pe.PositiveReals, bounds=get_u_bounds)
 
         # Zielfunktion erzeugen
         def max_power_rule(model):
             #return sum(sum(model.voltages[i]*model.I[j, i] for i in model.charger_buses) for j in model.times)
-            return sum(sum(model.I[j, i] for i in model.charger_buses) for j in model.times)
+            if type(self)._OPTIONS['consider linear']:
+                return sum(sum(model.I[j, i] for i in model.charger_buses) for j in model.times)
+            else:
+                return sum(sum(model.U[t, n] * model.I[t,n] for n in model.charger_buses) for t in model.times)
             #return sum(model.voltages_tf[t, b] * model.I[t, b] for (t, b) in model.occupancy_times)
             #return sum(sum(model.SOC[t+1, b] - model.SOC[t, b] for b in model.charger_buses if t < len(model.times)-1) for t in model.times)
             #return sum(sum(model.SOC[t, b] - model.SOC[model.times.prevw(t), b] for b in model.charger_buses) for t in model.times)
@@ -373,6 +395,19 @@ class GridLineOptimizer:
             return model.voltages[0] - sum(model.impedances[i] * (sum(model.household_currents[t, j] for j in model.buses if j > i)
                                                                   +sum(model.I[t, j] for j in model.charger_buses if j > i))
                                            for i in model.lines) >= model.u_min
+
+
+        def calc_voltages_rule(model, t, n):
+            if n == 0:
+                return model.u_trafo - sum(model.impedances[n] * (sum(model.household_currents[t, m]
+                        for m in model.buses if m >= n) + sum(model.I[t, m] for m in model.charger_buses
+                        if m >= n)))
+            else:
+                return model.U[t, n-1] - sum(model.impedances[n] * (sum(
+                    model.household_currents[t, m] for m in model.buses if m >= n
+                ) + sum(
+                    model.I[t, m] for m in model.charger_buses if m >= n
+                )))
 
 
         def max_current_rule(model, t):
@@ -410,7 +445,11 @@ class GridLineOptimizer:
                 return pe.Constraint.Skip
 
 
-        model.min_voltage = pe.Constraint(model.times, rule=min_voltage_rule)
+        if type(self)._OPTIONS['consider linear']:
+            model.min_voltage = pe.Constraint(model.times, rule=min_voltage_rule)
+        else:
+            model.calc_voltages = pe.Constraint(model.times*model.buses, rule=calc_voltages_rule)
+
         model.max_current = pe.Constraint(model.times, rule=max_current_rule)
         model.track_socs = pe.Constraint(model.times*model.charger_buses, rule=track_socs_rule)
         # mit diesem Constraint kommt dasselbe raus, als hätte man nur track_socs aktiv
@@ -641,7 +680,68 @@ class GridLineOptimizer:
             print(f'an Knotenspannung {bev.bus_voltage} V')
 
 
-    def plot_results(self, legend=True, **kwargs):
+    def plot_I_results(self, legend=True, save=False, usetex=False, **kwargs):
+        if usetex:
+            plt.rcParams['text.usetex'] = True
+
+        Is = {bus: [] for bus in self.bevs}
+        for time in self.times:
+            for bus in self.bevs:
+                Is[bus].append(self.optimization_model.I[time, bus].value)
+
+        Is_df = pd.DataFrame(Is)
+        Is_df.index = pd.date_range(start='2021', periods=len(Is_df), freq=str(self.resolution) + 'min')
+
+        fig, ax = plt.subplots(1, 1, figsize=(15, 5))
+
+        for column in Is_df.columns:
+            ax.plot(Is_df.index, Is_df[column], marker=kwargs['marker'], label=f'Strom zum BEV am Knoten {column}')
+        if legend:
+            ax.legend()
+        ax.grid()
+        ax.set_ylabel('Strom [A]', fontsize=17)
+        ax.set_xlabel('Zeitpunkt [MM-TT hh]', fontsize=17)
+        ax.set_title('Strom über der Zeit -- Ergebnis der Optimierung', fontsize=20)
+        if not save:
+            plt.show()
+
+        else:
+            plt.savefig('res_opt_i.pdf', bbox_inches='tight')
+
+
+    def plot_SOC_results(self, legend=True, save=False, usetex=False, **kwargs):
+        if usetex:
+            plt.rcParams['text.usetex'] = True
+
+        SOCs = {bus: [] for bus in self.bevs}
+        for time in self.times:
+            for bus in self.bevs:
+                SOCs[bus].append(self.optimization_model.SOC[time, bus].value)
+
+        SOCs_df = pd.DataFrame(SOCs)
+        SOCs_df.index = pd.date_range(start='2021', periods=len(SOCs_df), freq=str(self.resolution) + 'min')
+
+        fig, ax = plt.subplots(1, 1, figsize=(15, 5))
+
+        for column in SOCs_df.columns:
+            ax.plot(SOCs_df.index, SOCs_df[column], marker=kwargs['marker'], label=f'SOC des BEV am Knoten {column}')
+        if legend:
+            ax.legend()
+        ax.grid()
+        if usetex:
+            ax.set_ylabel('SOC [\%]', fontsize=17)
+        else:
+            ax.set_ylabel('SOC [%]', fontsize=17)
+        ax.set_xlabel('Zeitpunkt [MM-TT hh]', fontsize=17)
+        ax.set_title('SOC über der Zeit -- Ergebnis der Optimierung', fontsize=20)
+        if not save:
+            plt.show()
+
+        else:
+            plt.savefig('res_opt_soc.pdf', bbox_inches='tight')
+
+
+    def plot_all_results(self, legend=True, save=False, **kwargs):
         if not _pandas_available or not _matplotlib_available:
             print('\nWARNING: unable to plot results\n')
 
@@ -679,8 +779,11 @@ class GridLineOptimizer:
             ax[1].set_ylabel('Current [A]', fontsize=17)
             ax[1].set_xlabel('Time [mm-dd hh]', fontsize=17)
             ax[1].set_title('Current over time - results of optimization', fontsize=20)
+            if not save:
+                plt.show()
 
-            plt.show()
+            else:
+                plt.savefig('res_opt.pdf', bbox_inches='tight')
 
 
     def resample_data(func):

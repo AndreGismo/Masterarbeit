@@ -15,9 +15,9 @@ from household import Household as HH
 
 import matplotlib.pyplot as plt
 
-ROLLING = False
+ROLLING = False#'experimental'
 
-resolution = 10
+resolution = 6
 buses = 6
 bevs = 6
 bev_lst = list(range(bevs))
@@ -28,8 +28,8 @@ s_trafo = 150  #kVA
 home_buses = [0, 1, 2, 3, 4, 5]
 start_socs = [20, 20, 30, 20, 25, 40]
 target_socs = [80, 70, 80, 90, 80, 70]
-target_times = [12, 16, 18, 18, 17, 20]
-start_times = [10, 2, 2, 2, 2, 2]
+target_times = [10, 16, 18, 18, 17, 20]
+start_times = [2, 2, 2, 2, 2, 2]
 bat_energies = [50, 50, 50, 50, 50, 50]
 
 # Households
@@ -49,25 +49,28 @@ household_list = []
 for bus in bus_lst:
     household = HH(home_bus=bus, annual_demand=ann_dems[bus], resolution=resolution)
     household.raise_demand(11, 19, 23500)
+    #household.raise_demand(15, 18, 23500)
     household_list.append(household)
 
-#GLO.set_options('distribute_loadings', True)
+#GLO.set_options('distribute loadings', True)
+#GLO.set_options('log results', True)
 
 test = GLO(number_buses=buses, bevs=bev_list, resolution=resolution, s_trafo_kVA=s_trafo,
            households=household_list, horizon_width=24)
 
 
 # optimieren lassen
-if not ROLLING:
+if ROLLING == False:
     test.run_optimization_single_timestep(tee=True)
     test.optimization_model.SOC.pprint()
-    test.plot_results(marker='o')
+    test.plot_I_results(marker='x', save=True, usetex=False)
+    test.plot_SOC_results(marker='x', save=True, usetex=False)
     #test.export_grid()
     res_I = test.export_I_results()
     print(res_I)
 
 
-else:
+if ROLLING == True:
     test.run_optimization_rolling_horizon(24, tee=False)
     for key in test.results_I:
         print(test.results_I[key])
@@ -79,6 +82,23 @@ else:
     for i in range(len(bev_lst)):
         plt.plot(range(len(test.results_I[0])), test.results_I[i], marker='o')
     plt.show()
+
+
+if ROLLING == 'experimental':
+    res_ges = []
+    for t in range(int(24*60/resolution)):
+        print(t)
+        test.run_optimization_single_timestep(tee=False)
+        test._store_results()
+        res = test.export_I_results()
+        res_ges.append(res)
+        test._prepare_next_timestep()
+        test._setup_model()
+
+    for item in res_ges:
+        for key in item:
+            print(item[key])
+        print('############################################')
 
 
 
