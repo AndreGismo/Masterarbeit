@@ -191,6 +191,7 @@ class GridLineOptimizer:
 
     def _prepare_i_upper_bounds(self):
         i_upper_bounds = {bev.home_bus: {t: 27 for t in self.times} for bev in self.bevs.values()}
+        print(i_upper_bounds)
         # hier schon dafür sorgen, dass an denjenigen Stellen, wo das entsprechende BEV
         # nicht an der Ladesäule steht, upper_bound zu 0 gesetzt wird
         for bev in self.bevs.values():
@@ -345,7 +346,8 @@ class GridLineOptimizer:
         # create parameters
         model.impedances = pe.Param(model.lines, initialize=self.impedances)
         if type(self)._OPTIONS['consider linear']:
-            # voltage as parameter, only if consider linear problem
+            # voltage as parameter, only if consider linear problem,
+            # otherwise voltage as decission variable few lines below
             model.voltages = pe.Param(model.buses, initialize=self.voltages)
         #model.voltages_tf = pe.Param(model.occupancy_times, initialize=self.voltages_tf)
         model.u_min = self.u_min
@@ -373,6 +375,8 @@ class GridLineOptimizer:
         model.I = pe.Var(model.times*model.charger_buses, domain=pe.NonNegativeReals, bounds=get_i_bounds)
         model.SOC = pe.Var(model.times*model.charger_buses, domain=pe.PositiveReals, bounds=get_soc_bounds)
         if not type(self)._OPTIONS['consider linear']:
+            # if not considered as linear problem, make voltages as decission variable
+            # otherwise it was allready defined as parameter few lines above
             model.U = pe.Var(model.times*model.buses, domain=pe.PositiveReals, bounds=get_u_bounds)
 
         # Zielfunktion erzeugen
@@ -392,22 +396,22 @@ class GridLineOptimizer:
 
         # Restriktionen festlegen
         def min_voltage_rule(model, t):
-            return model.voltages[0] - sum(model.impedances[i] * (sum(model.household_currents[t, j] for j in model.buses if j > i)
-                                                                  +sum(model.I[t, j] for j in model.charger_buses if j > i))
-                                           for i in model.lines) >= model.u_min
+            return model.u_trafo - sum(model.impedances[l] * (sum(model.household_currents[t, n] for n in model.buses if n >= l)
+                                                                  +sum(model.I[t, n] for n in model.charger_buses if n >= l))
+                                           for l in model.lines) >= model.u_min
 
 
         def calc_voltages_rule(model, t, n):
             if n == 0:
                 return model.u_trafo - sum(model.impedances[n] * (sum(model.household_currents[t, m]
                         for m in model.buses if m >= n) + sum(model.I[t, m] for m in model.charger_buses
-                        if m >= n)))
+                        if m >= n)) for n in model.lines)
             else:
                 return model.U[t, n-1] - sum(model.impedances[n] * (sum(
                     model.household_currents[t, m] for m in model.buses if m >= n
                 ) + sum(
                     model.I[t, m] for m in model.charger_buses if m >= n
-                )))
+                )) for n in model.lines)
 
 
         def max_current_rule(model, t):
@@ -453,7 +457,7 @@ class GridLineOptimizer:
         model.max_current = pe.Constraint(model.times, rule=max_current_rule)
         model.track_socs = pe.Constraint(model.times*model.charger_buses, rule=track_socs_rule)
         # mit diesem Constraint kommt dasselbe raus, als hätte man nur track_socs aktiv
-        model.ensure_final_soc = pe.Constraint(model.buses, rule=ensure_final_soc_rule)
+        model.ensure_final_soc = pe.Constraint(model.charger_buses, rule=ensure_final_soc_rule)
         if type(self)._OPTIONS['distribute loadings'] == True:
             model.distribute_loading = pe.Constraint(model.times*model.charger_buses, rule=distribute_loading_rule)
 
@@ -800,6 +804,7 @@ class GridLineOptimizer:
 
 
     @resample_data
+    # deprecated, use export_I_results instead
     def provide_data(self, dtype):
         """
         provides data (the currents for each charger at each timestep) in a fashion that is digestable for
