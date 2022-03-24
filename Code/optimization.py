@@ -100,7 +100,8 @@ class GridLineOptimizer:
 
     _OPTIONS = {'distribute loadings': False,
                 'log results': False,
-                'consider linear': True}
+                'consider linear': True,
+                'fairness': 27}
 
     def __init__(self, number_buses, bevs, households, charger_locs=None, horizon_width=24, impedance=0.004,
                  voltages=None, impedances=None, resolution=60, s_trafo_kVA=100, solver='glpk'):
@@ -449,6 +450,11 @@ class GridLineOptimizer:
                 return pe.Constraint.Skip
 
 
+        def fair_charging_rule(model, t, b):
+            return model.I[t, b] - model.I[t, model.charger_buses.prevw(b)] <=\
+                   type(self)._OPTIONS['fairness']
+
+
         if type(self)._OPTIONS['consider linear']:
             model.min_voltage = pe.Constraint(model.times, rule=min_voltage_rule)
         else:
@@ -460,6 +466,8 @@ class GridLineOptimizer:
         model.ensure_final_soc = pe.Constraint(model.charger_buses, rule=ensure_final_soc_rule)
         if type(self)._OPTIONS['distribute loadings'] == True:
             model.distribute_loading = pe.Constraint(model.times*model.charger_buses, rule=distribute_loading_rule)
+        if type(self)._OPTIONS['fairness'] < 27:
+            model.fair_charging = pe.Constraint(model.times*model.charger_buses, rule=fair_charging_rule)
 
         #return model
         self.optimization_model = model
