@@ -693,9 +693,18 @@ class GridLineOptimizer:
             print(f'an Knotenspannung {bev.bus_voltage} V')
 
 
-    def plot_I_results(self, legend=True, save=False, usetex=False, **kwargs):
+    def plot_I_results(self, legend=True, save=False, usetex=False,
+                       compact_x=False, **kwargs):
         if usetex:
             plt.rcParams['text.usetex'] = True
+            plt.rcParams['font.family'] = 'serif'
+            plt.rcParams['grid.linewidth'] = 0.4
+            plt.rcParams['lines.linewidth'] = 1
+            plt.rcParams['legend.fontsize'] = 8
+            plt.rcParams['font.size'] = 11
+
+        if compact_x:
+            x_fmt = mdates.DateFormatter('%H')
 
         Is = {bus: [] for bus in self.bevs}
         for time in self.times:
@@ -705,16 +714,20 @@ class GridLineOptimizer:
         Is_df = pd.DataFrame(Is)
         Is_df.index = pd.date_range(start='2021', periods=len(Is_df), freq=str(self.resolution) + 'min')
 
-        fig, ax = plt.subplots(1, 1, figsize=(15, 5))
+        fig, ax = plt.subplots(1, 1, figsize=(6.5, 1.75))
 
         for column in Is_df.columns:
             ax.plot(Is_df.index, Is_df[column], marker=kwargs['marker'], label=f'Strom zum BEV am Knoten {column}')
         if legend:
             ax.legend()
         ax.grid()
-        ax.set_ylabel('Strom [A]', fontsize=17)
-        ax.set_xlabel('Zeitpunkt [MM-TT hh]', fontsize=17)
-        ax.set_title('Strom über der Zeit -- Ergebnis der Optimierung', fontsize=20)
+        ax.set_ylabel('Strom [A]')
+        if compact_x:
+            ax.xaxis.set_major_formatter(x_fmt)
+            ax.set_xlabel('Time [hh]')
+        else:
+            ax.set_xlabel('Zeitpunkt [MM-TT hh]')
+        #ax.set_title('Strom über der Zeit -- Ergebnis der Optimierung')
         if not save:
             plt.show()
 
@@ -722,9 +735,18 @@ class GridLineOptimizer:
             plt.savefig('res_opt_i.pdf', bbox_inches='tight')
 
 
-    def plot_SOC_results(self, legend=True, save=False, usetex=False, **kwargs):
+    def plot_SOC_results(self, legend=True, save=False, usetex=False,
+                         compact_x=False, **kwargs):
         if usetex:
             plt.rcParams['text.usetex'] = True
+            plt.rcParams['font.family'] = 'serif'
+            plt.rcParams['grid.linewidth'] = 0.4
+            plt.rcParams['lines.linewidth'] = 1
+            plt.rcParams['legend.fontsize'] = 8
+            plt.rcParams['font.size'] = 11
+
+        if compact_x:
+            x_fmt = mdates.DateFormatter('%H')
 
         SOCs = {bus: [] for bus in self.bevs}
         for time in self.times:
@@ -734,7 +756,7 @@ class GridLineOptimizer:
         SOCs_df = pd.DataFrame(SOCs)
         SOCs_df.index = pd.date_range(start='2021', periods=len(SOCs_df), freq=str(self.resolution) + 'min')
 
-        fig, ax = plt.subplots(1, 1, figsize=(15, 5))
+        fig, ax = plt.subplots(1, 1, figsize=(6.5, 1.75))
 
         for column in SOCs_df.columns:
             ax.plot(SOCs_df.index, SOCs_df[column], marker=kwargs['marker'], label=f'SOC des BEV am Knoten {column}')
@@ -742,11 +764,16 @@ class GridLineOptimizer:
             ax.legend()
         ax.grid()
         if usetex:
-            ax.set_ylabel('SOC [\%]', fontsize=17)
+            ax.set_ylabel('SOC [\%]')
         else:
-            ax.set_ylabel('SOC [%]', fontsize=17)
-        ax.set_xlabel('Zeitpunkt [MM-TT hh]', fontsize=17)
-        ax.set_title('SOC über der Zeit -- Ergebnis der Optimierung', fontsize=20)
+            ax.set_ylabel('SOC [%]')
+
+        if compact_x:
+            ax.xaxis.set_major_formatter(x_fmt)
+            ax.set_xlabel('Time [hh]')
+        else:
+            ax.set_xlabel('Zeitpunkt [MM-TT hh]')
+        #ax.set_title('SOC über der Zeit -- Ergebnis der Optimierung')
         if not save:
             plt.show()
 
@@ -792,7 +819,10 @@ class GridLineOptimizer:
             if legend:
                 ax[0].legend()
             ax[0].grid()
-            ax[0].set_ylabel('SOC [%]')
+            if usetex:
+                ax[0].set_ylabel('SOC [\%]')
+            else:
+                ax[0].set_ylabel('SOC [%]')
             #ax[0].set_title('SOC over time - results of optimization', fontsize=20)
 
             for column in Is_df.columns:
