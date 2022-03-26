@@ -63,6 +63,7 @@ except ModuleNotFoundError:
 
 try:
     import matplotlib.pyplot as plt
+    import matplotlib.dates as mdates
 
 except ModuleNotFoundError:
     print('\nWARNING: module matplotlib not available, some features are',
@@ -753,7 +754,18 @@ class GridLineOptimizer:
             plt.savefig('res_opt_soc.pdf', bbox_inches='tight')
 
 
-    def plot_all_results(self, legend=True, save=False, **kwargs):
+    def plot_all_results(self, legend=True, save=False, usetex=False, compact_x=False, **kwargs):
+        if usetex:
+            plt.rcParams['text.usetex'] = True
+            plt.rcParams['font.family'] = 'serif'
+            plt.rcParams['grid.linewidth'] = 0.4
+            plt.rcParams['lines.linewidth'] = 1
+            plt.rcParams['legend.fontsize'] = 8
+            plt.rcParams['font.size'] = 11
+
+        if compact_x:
+            x_fmt = mdates.DateFormatter('%H')
+
         if not _pandas_available or not _matplotlib_available:
             print('\nWARNING: unable to plot results\n')
 
@@ -774,23 +786,26 @@ class GridLineOptimizer:
             Is_df = pd.DataFrame(Is)
             Is_df.index = pd.date_range(start='2021', periods=len(SOCs_df), freq=str(self.resolution) + 'min')
 
-            fig, ax = plt.subplots(2, 1, figsize=(15, 15), sharex=False)
+            fig, ax = plt.subplots(2, 1, figsize=(6.5, 4), sharex=True)
             for column in SOCs_df.columns:
-                ax[0].plot(SOCs_df.index, SOCs_df[column], marker=kwargs['marker'], label=f'SOC of BEV at node {column}')
+                ax[0].plot(SOCs_df.index, SOCs_df[column], marker=kwargs['marker'], label=f'SOC of BEV at node {column+1}')
             if legend:
                 ax[0].legend()
             ax[0].grid()
-            ax[0].set_ylabel('SOC [%]', fontsize=17)
-            ax[0].set_title('SOC over time - results of optimization', fontsize=20)
+            ax[0].set_ylabel('SOC [%]')
+            #ax[0].set_title('SOC over time - results of optimization', fontsize=20)
 
             for column in Is_df.columns:
-                ax[1].plot(Is_df.index, Is_df[column], marker=kwargs['marker'], label=f'Current to BEV at node {column}')
+                ax[1].plot(Is_df.index, Is_df[column], marker=kwargs['marker'], label=f'Current to BEV at node {column+1}')
             if legend:
                 ax[1].legend()
             ax[1].grid()
-            ax[1].set_ylabel('Current [A]', fontsize=17)
-            ax[1].set_xlabel('Time [mm-dd hh]', fontsize=17)
-            ax[1].set_title('Current over time - results of optimization', fontsize=20)
+            ax[1].set_ylabel('Current [A]')
+            ax[1].set_xlabel('Time [mm-dd hh]', fontsize=11)
+            if compact_x:
+                ax[1].xaxis.set_major_formatter(x_fmt)
+                ax[1].set_xlabel('Time [hh]')
+            #ax[1].set_title('Current over time - results of optimization', fontsize=20)
             if not save:
                 plt.show()
 
