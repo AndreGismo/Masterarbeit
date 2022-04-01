@@ -193,7 +193,7 @@ class GridLineOptimizer:
 
     def _prepare_i_upper_bounds(self):
         i_upper_bounds = {bev.home_bus: {t: 27 for t in self.times} for bev in self.bevs.values()}
-        print(i_upper_bounds)
+        #print(i_upper_bounds)
         # hier schon dafür sorgen, dass an denjenigen Stellen, wo das entsprechende BEV
         # nicht an der Ladesäule steht, upper_bound zu 0 gesetzt wird
         for bev in self.bevs.values():
@@ -295,6 +295,8 @@ class GridLineOptimizer:
             self.soc_lower_bounds[bev.home_bus][self.current_timestep] = SOCs2[num]
             self.soc_upper_bounds[bev.home_bus][self.current_timestep] = SOCs2[num]
 
+        self._update_bev_socs(SOCs2)
+
         #Is2 = []
 
         #for bus in self.bevs:
@@ -305,33 +307,15 @@ class GridLineOptimizer:
         self._prepare_i_lower_bounds()
         self._prepare_i_upper_bounds()
 
-        #for num, bev in enumerate(self.bevs.values()):
-            #self.i_lower_bounds[bev.home_bus][self.current_timestep] = Is2[num]
-            #self.i_upper_bounds[bev.home_bus][self.current_timestep] = Is2[num]
 
-        # hier jetzt die i_upper_bound überall zu 0 setzen, wo das BEV nicht am
-        # Ladepunkt steht
-        # for bev in self.bevs.keys():
-        #     # wenn der current_timestep kleiner als t_start: alles vor und nach der Zeit, zu der
-        #     # das BEV am Laden ist gleich 0
-        #     if self.current_timestep < self.bevs[bev].t_start:
-        #         #print('BEV am Knoten:', bev)
-        #         # everything before t_start set to 0
-        #         self.i_upper_bounds[bev].update({t: 0 for t in range(self.current_timestep, self.bevs[bev].t_start)})
-        #         # everything after t_target set to 0
-        #         self.i_upper_bounds[bev].update({t: 0 for t in range(self.bevs[bev].t_target, self.current_timestep+
-        #                                                             int(60/self.resolution*self.horizon_width))})
-        #         #print(self.i_upper_bounds)
-        #
-        #     # wenn der current_timestep zwischen t_start und t_target liegt: alles nach t_target zu
-        #     # 0 setzen
-        #     elif self.current_timestep >= self.bevs[bev].t_start and self.current_timestep < self.bevs[bev].t_target:
-        #         self.i_upper_bounds[bev].update({t: 0 for t in range(self.bevs[bev].t_target, self.current_timestep+
-        #                                                              int(60/self.resolution*self.horizon_width))})
-        #     # wenn der curren_timestep größer t_target, dann alles zu 0 setzen
-        #     elif self.current_timestep >= self.bevs[bev].t_target:
-        #         self.i_upper_bounds[bev].update({t: 0 for t in range(self.current_timestep, self.current_timestep+
-        #                                                              int(60/self.resolution*self.horizon_width))})
+    def _update_bev_socs(self, values):
+        """
+        Assigns the SOCs to the corresponding BEVs instances
+        :param values: List with SOCs for all the BEVs
+        :return: None
+        """
+        for num, bev in enumerate(self.bevs.values()):
+            bev.update_soc(values[num])
 
 
     def _setup_model(self):
@@ -438,7 +422,7 @@ class GridLineOptimizer:
             t_end = self.bevs[b].t_target
             if t_end - self.current_timestep > 0:
                 return sum(model.voltages[b] * model.I[t, b] for t in range(self.current_timestep, t_end))* self.resolution/60\
-                /1000 / self.bevs[b].e_bat * 100 <= (self.bevs[b].soc_target - self.bevs[b].soc_start)#self.bevs[b].soc_list[self.current_timestep-1])#- self.bevs[b].soc_start)
+                /1000 / self.bevs[b].e_bat * 100 <= (self.bevs[b].soc_target - self.bevs[b].current_soc)#self.bevs[b].soc_list[self.current_timestep-1])#- self.bevs[b].soc_start)
             else:
                 return pe.Constraint.Skip
 

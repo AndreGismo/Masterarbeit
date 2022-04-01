@@ -21,9 +21,16 @@ class BatteryElectricVehicle:
         self.recurring = recurring
         self.horizon_width = None # bekommt von GLO mitgeteilt
         self.occupancies = None # wird auch von GLO aus aufgerufen
+        self.current_soc = soc_start
+
+
+    def update_soc(self, value):
+        self.current_soc = value
+        #print(f'SOC of BEV at node{self.home_bus} at timestep {self.current_timestep}: {self.current_soc} %')
 
 
     # wird von GLO aus aufgerufen
+    # deprecated
     def make_occupancies(self):
         occupancies = [False for _ in range(int(self.horizon_width * 60/self.resolution))]
         offset = 24 * 60/self.resolution
@@ -47,7 +54,7 @@ class BatteryElectricVehicle:
     def plot_soc(self):
         pass
 
-
+    # deprecated
     def check_availability(self, timestep):
         self.current_timestep = timestep
         if self.current_timestep < self.t_start:
