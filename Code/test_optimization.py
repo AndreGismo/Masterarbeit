@@ -17,20 +17,20 @@ import matplotlib.pyplot as plt
 
 ROLLING = True#'experimental'
 
-resolution = 15
+resolution = 6
 buses = 6
-bevs = 2
+bevs = 6
 bev_lst = list(range(bevs))
 bus_lst = list(range(buses))
-s_trafo = 15  #kVA
+s_trafo = 150  #kVA
 
 # BEVs
-home_buses = [0, 5]#[0, 1, 2, 3, 4, 5]
-start_socs = [20, 20]#[20, 20, 30, 20, 25, 40]
-target_socs = [100, 100]#[80, 70, 80, 90, 80, 70]
-target_times = [18, 18]#[10, 16, 18, 18, 17, 20]
-start_times = [15, 15]#[2, 2, 2, 2, 2, 2]
-bat_energies = [50, 50]#[50, 50, 50, 50, 50, 50]
+home_buses = [0, 1, 2, 3, 4, 5]  #[0, 5]#[0, 1, 2, 3, 4, 5]
+start_socs = [20, 20, 30, 20, 25, 40]#[20, 20]#[20, 20, 30, 20, 25, 40]
+target_socs = [80, 70, 80, 90, 80, 70]#[100, 100]#[80, 70, 80, 90, 80, 70]
+target_times = [10, 16, 18, 18, 17, 20]#[20, 20]#[10, 16, 18, 18, 17, 20]
+start_times = [2, 2, 2, 2, 2, 2]#[15, 15]#[2, 2, 2, 2, 2, 2]
+bat_energies = [50, 50, 50, 50, 50, 50]#[50, 50]#[50, 50, 50, 50, 50, 50]
 
 # Households
 ann_dems = [3000, 3500, 3000, 4000, 3000, 3000]
@@ -48,7 +48,7 @@ for car in bev_lst:
 household_list = []
 for bus in bus_lst:
     household = HH(home_bus=bus, annual_demand=ann_dems[bus], resolution=resolution)
-    #household.raise_demand(11, 19, 23500)
+    household.raise_demand(11, 19, 23500)
     #household.raise_demand(15, 18, 23500)
     household_list.append(household)
 
@@ -68,8 +68,8 @@ if ROLLING == False:
     test.run_optimization_single_timestep(tee=True)
     test.optimization_model.SOC.pprint()
     #test.plot_I_results(marker='x', save=False, usetex=False)
-    test.plot_I_results(marker=None, save=False, usetex=True, compact_x=True)
-    test.plot_SOC_results(marker=None, save=False, usetex=True, compact_x=True)
+    test.plot_I_results(marker=None, save=True, usetex=True, compact_x=True)
+    test.plot_SOC_results(marker=None, save=True, usetex=True, compact_x=True)
     #test.export_grid()
     res_I = test.export_I_results()
     print(res_I)
@@ -81,11 +81,12 @@ if ROLLING == True:
         print(test.results_I[key])
 
     for i in home_buses:#range(len(bev_lst)):
-        plt.plot(range(len(test.results_I[0])), test.results_SOC[i], marker='o')
+        plt.plot(range(len(test.results_I[0])), test.results_SOC[i])#, marker='o')
     plt.show()
 
     for i in home_buses:#range(len(bev_lst)):
-        plt.plot(range(len(test.results_I[0])), test.results_I[i], marker='o')
+        plt.plot(range(len(test.results_I[0])), test.results_I[i], label=f'Current to BEV at node {i}')#, marker='o')
+    plt.legend()
     plt.show()
 
 

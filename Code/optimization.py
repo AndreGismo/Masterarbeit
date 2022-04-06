@@ -283,7 +283,7 @@ class GridLineOptimizer:
         SOCs2 = []
         #SOCs2 = {bus: None for bus in self.bevs}
         for bus in self.bevs:
-            SOCs2.append(self.optimization_model.SOC[self.current_timestep+1, bus].value)
+            SOCs2.append(self.optimization_model.SOC[self.current_timestep, bus].value)
             #SOCs2[bus] = self.optimization_model.SOC[self.current_timestep+1, bus].value
 
         self._prepare_soc_lower_bounds()
@@ -294,6 +294,7 @@ class GridLineOptimizer:
             # schreiben
             self.soc_lower_bounds[bev.home_bus][self.current_timestep] = SOCs2[num]
             self.soc_upper_bounds[bev.home_bus][self.current_timestep] = SOCs2[num]
+
 
         self._update_bev_socs(SOCs2)
 
@@ -346,6 +347,7 @@ class GridLineOptimizer:
             return self.households[bus].load_profile[time] / self.voltages[bus]
 
         model.household_currents = pe.Param(model.times*model.buses, initialize=get_household_currents)
+        #print(model.household_currents[self.current_timestep, 0])
 
         # Entscheidungsvariablen erzeugen (dafür erstmal am besten ein array (timesteps x buses)
         # wo überall nur 50 drinsteht (oder was man dem BEV halt als coc_start übergeben hatte))
@@ -618,7 +620,7 @@ class GridLineOptimizer:
         for bus in self.bevs:  # das liefert ja die home_buses
             # Werte aus model abfragen
             SOC = self.optimization_model.SOC[self.current_timestep, bus].value # +1 dazu
-            I = self.optimization_model.I[self.current_timestep+1, bus].value # +1 dazu
+            I = self.optimization_model.I[self.current_timestep, bus].value # +1 dazu
             # und in Ergebnisliste eintragen
             self.results_SOC[bus].append(SOC)
             self.results_I[bus].append(I)
