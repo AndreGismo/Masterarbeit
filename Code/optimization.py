@@ -192,7 +192,7 @@ class GridLineOptimizer:
 
 
     def _prepare_i_upper_bounds(self):
-        i_upper_bounds = {bev.home_bus: {t: 27 for t in self.times} for bev in self.bevs.values()}
+        i_upper_bounds = {bev.home_bus: {t: bev.p_load/0.4 for t in self.times} for bev in self.bevs.values()}
         #print(i_upper_bounds)
         # hier schon dafür sorgen, dass an denjenigen Stellen, wo das entsprechende BEV
         # nicht an der Ladesäule steht, upper_bound zu 0 gesetzt wird
@@ -216,6 +216,8 @@ class GridLineOptimizer:
 
 
         self.i_upper_bounds = i_upper_bounds
+        for key, val in self.i_upper_bounds.items():
+            print(key, val)
 
 
     def _make_bev_dict(self, bevs):

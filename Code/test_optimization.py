@@ -15,9 +15,9 @@ from household import Household as HH
 
 import matplotlib.pyplot as plt
 
-ROLLING = True#'experimental'
+ROLLING = False#'experimental'
 
-resolution = 6
+resolution = 15
 buses = 6
 bevs = 6
 bev_lst = list(range(bevs))
@@ -31,6 +31,7 @@ target_socs = [80, 70, 80, 90, 80, 70]#[100, 100]#[80, 70, 80, 90, 80, 70]
 target_times = [10, 16, 18, 18, 17, 20]#[20, 20]#[10, 16, 18, 18, 17, 20]
 start_times = [2, 2, 2, 2, 2, 2]#[15, 15]#[2, 2, 2, 2, 2, 2]
 bat_energies = [50, 50, 50, 50, 50, 50]#[50, 50]#[50, 50, 50, 50, 50, 50]
+p_loads = [11, 11, 22, 11, 22, 11]
 
 # Households
 ann_dems = [3000, 3500, 3000, 4000, 3000, 3000]
@@ -41,7 +42,7 @@ for car in bev_lst:
     bev = BEV(soc_start=start_socs[car], soc_target=target_socs[car],
               t_target=target_times[car], e_bat=bat_energies[car],
               resolution=resolution, home_bus=home_buses[car],
-              t_start=start_times[car])
+              t_start=start_times[car], p_load=p_loads[car])
     bev_list.append(bev)
 
 # Households erzeugen
@@ -68,8 +69,8 @@ if ROLLING == False:
     test.run_optimization_single_timestep(tee=True)
     test.optimization_model.SOC.pprint()
     #test.plot_I_results(marker='x', save=False, usetex=False)
-    test.plot_I_results(marker=None, save=True, usetex=True, compact_x=True)
-    test.plot_SOC_results(marker=None, save=True, usetex=True, compact_x=True)
+    test.plot_I_results(marker=None, save=False, usetex=True, compact_x=True)
+    test.plot_SOC_results(marker=None, save=False, usetex=True, compact_x=True)
     #test.export_grid()
     res_I = test.export_I_results()
     print(res_I)

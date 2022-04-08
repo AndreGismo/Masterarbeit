@@ -6,7 +6,8 @@ wie groß die Batterie ist.
 
 class BatteryElectricVehicle:
     def __init__(self, home_bus, e_bat=50, soc_start=50, soc_target=100, t_target=17,
-                 t_start=14, resolution=60, current_timestep=0, recurring='daily'):
+                 t_start=14, resolution=60, current_timestep=0, p_load=11,
+                 recurring='daily'):
         self.home_bus = home_bus
         self.e_bat = e_bat
         #self.bus_voltage = bus_voltage
@@ -15,6 +16,7 @@ class BatteryElectricVehicle:
         self.resolution = resolution
         self.t_target = int(t_target * 60 / self.resolution)
         self.t_start = int(t_start * 60/self.resolution)
+        self.p_load = p_load
         self.soc_list = [soc_start]
         self.is_loading = True
         self.current_timestep = current_timestep
