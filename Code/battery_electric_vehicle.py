@@ -37,12 +37,12 @@ class BatteryElectricVehicle:
             return 0
         elif timestep >= self.t_start  and timestep < self.t_target:
             if self.current_soc <= 80:
-                self.update_soc(self.p_load)
+                self.calc_new_soc(self.p_load)
                 return self.p_load
             elif self.current_soc > 80 and self.current_soc <= 100:
                 # calculate according to exponential decrease formula
                 p_load_calc = self.calc_p_load()
-                self.update_soc(p_load_calc)
+                self.calc_new_soc(p_load_calc)
                 return p_load_calc
             else:
                 return 0
@@ -50,7 +50,7 @@ class BatteryElectricVehicle:
             return 0
 
 
-    def update_soc(self, power):
+    def calc_new_soc(self, power):
         self.current_soc += (power * self.resolution/60)/self.e_bat*100
         if self.current_soc > 100:
             self.current_soc = 100
