@@ -3,6 +3,7 @@ Klasse zur Simulation von Battery Electric Vehicles (BEVs). Der SOC wird getrack
 zurückgemeldet. Außerdem wird festgehalten, an welcher Ladesäule (also an welchem Bus im Netz) das BEV lädt und
 wie groß die Batterie ist.
 """
+import numpy as np
 
 class BatteryElectricVehicle:
     def __init__(self, home_bus, e_bat=50, soc_start=50, soc_target=100, t_target=17,
@@ -29,6 +30,41 @@ class BatteryElectricVehicle:
     def update_soc(self, value):
         self.current_soc = value
         #print(f'SOC of BEV at node{self.home_bus} at timestep {self.current_timestep}: {self.current_soc} %')
+
+
+    def get_current_power(self, timestep):
+        if timestep < self.t_start:
+            return 0
+        elif timestep >= self.t_start  and timestep < self.t_target:
+            if self.current_soc <= 80:
+                self.update_soc(self.p_load)
+                return self.p_load
+            elif self.current_soc > 80 and self.current_soc <= 100:
+                # calculate according to exponential decrease formula
+                p_load_calc = self.calc_p_load()
+                self.update_soc(p_load_calc)
+                return p_load_calc
+            else:
+                return 0
+        else:
+            return 0
+
+
+    def update_soc(self, power):
+        self.current_soc += (power * self.resolution/60)/self.e_bat*100
+        if self.current_soc > 100:
+            self.current_soc = 100
+        print(f'current soc of BEV at node {self.home_bus}: {self.current_soc}')
+
+
+    def calc_p_load(self):
+        # calculate load stop power
+        p_ls = 4.2/3.9*0.03*self.e_bat
+        # calculate loading correcture factor
+        kl = (100-80)/np.log(self.p_load/p_ls)
+        # calculate P(SOC)
+        p_soc = self.p_load * np.exp((80-self.current_soc)/kl)
+        return p_soc
 
 
     # wird von GLO aus aufgerufen
