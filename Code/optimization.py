@@ -102,7 +102,8 @@ class GridLineOptimizer:
     _OPTIONS = {'distribute loadings': False,
                 'log results': False,
                 'consider linear': True,
-                'fairness': 27}
+                'fairness': 27,
+                'equal SOCs': 1}
 
     def __init__(self, number_buses, bevs, households, charger_locs=None, horizon_width=24, impedance=0.004,
                  voltages=None, impedances=None, resolution=60, s_trafo_kVA=100, solver='glpk'):
@@ -444,6 +445,17 @@ class GridLineOptimizer:
                    type(self)._OPTIONS['fairness']
 
 
+        def equal_socs_rule(model, b):
+            # calculate last timestep in considered horizon
+            ft = self.current_timestep + self.horizon_width * 60/self.resolution -1
+            pb = model.charger_buses.prevw(b)
+            # fraction of actually loaded energy to desired loaded energy (soc_target - soc_start)
+            # should be more or less equal for each bev
+            return (model.SOC[ft, b] - self.bevs[b].soc_start) / (self.bevs[b].soc_target - self.bevs[b].soc_start)\
+                -(model.SOC[ft, pb] - self.bevs[pb].soc_start) / (self.bevs[pb].soc_target - self.bevs[pb].soc_start)\
+                <= type(self)._OPTIONS['equal SOCs']
+
+
         if type(self)._OPTIONS['consider linear']:
             model.min_voltage = pe.Constraint(model.times, rule=min_voltage_rule)
         else:
@@ -457,6 +469,8 @@ class GridLineOptimizer:
             model.distribute_loading = pe.Constraint(model.times*model.charger_buses, rule=distribute_loading_rule)
         if type(self)._OPTIONS['fairness'] < 27:
             model.fair_charging = pe.Constraint(model.times*model.charger_buses, rule=fair_charging_rule)
+        if type(self)._OPTIONS['equal SOCs'] < 1:
+            model.equal_socs = pe.Constraint(model.charger_buses, rule=equal_socs_rule)
 
         #return model
         self.optimization_model = model
