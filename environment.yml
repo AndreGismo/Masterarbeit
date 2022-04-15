@@ -1,0 +1,12 @@
+name: maThesis
+channels:
+  - defaults
+dependencies:
+  - pandas
+  - matplotlib
+  - python
+  - numpy
+  - pyomo
+  - glpk
+  - ipopt=3.11.1
+prefix: C:\Users\andre\anaconda3\envs\maThesis
