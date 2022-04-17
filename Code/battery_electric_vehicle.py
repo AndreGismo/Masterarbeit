@@ -32,18 +32,18 @@ class BatteryElectricVehicle:
         #print(f'SOC of BEV at node{self.home_bus} at timestep {self.current_timestep}: {self.current_soc} %')
 
 
-    def get_current_power(self, timestep):
+    def get_current_power(self, timestep, cap):
         if timestep < self.t_start:
             return 0
         elif timestep >= self.t_start  and timestep < self.t_target:
             if self.current_soc <= 80:
-                self.calc_new_soc(self.p_load)
-                return self.p_load
+                self.calc_new_soc(self.p_load*cap)
+                return self.p_load*cap
             elif self.current_soc > 80 and self.current_soc <= 100:
                 # calculate according to exponential decrease formula
                 p_load_calc = self.calc_p_load()
-                self.calc_new_soc(p_load_calc)
-                return p_load_calc
+                self.calc_new_soc(p_load_calc*cap)
+                return p_load_calc*cap
             else:
                 return 0
         else:
