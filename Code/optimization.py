@@ -106,13 +106,15 @@ class GridLineOptimizer:
                 'equal SOCs': 1}
 
     def __init__(self, number_buses, bevs, households, charger_locs=None, horizon_width=24, impedance=0.004,
-                 voltages=None, impedances=None, resolution=60, s_trafo_kVA=100, solver='glpk'):
+                 voltages=None, impedances=None, line_capacities=None, resolution=60, s_trafo_kVA=100, solver='glpk'):
         self.current_timestep = 0
         self.resolution = resolution
         self.horizon_width = horizon_width
         self.number_buses = number_buses
         self.buses = self._make_buses()
         self.lines = self._make_lines()
+        self.line_capacities = line_capacities
+        self.line_capacities_list = self._make_line_capacities()
         self._make_times()
         if voltages == None:
             self.voltages = self._make_voltages()
@@ -215,10 +217,7 @@ class GridLineOptimizer:
                 # all the times have to be 0
                 i_upper_bounds[bev.home_bus].update({t: 0 for t in self.times})
 
-
         self.i_upper_bounds = i_upper_bounds
-        for key, val in self.i_upper_bounds.items():
-            print(key, val)
 
 
     def _make_bev_dict(self, bevs):
@@ -258,6 +257,12 @@ class GridLineOptimizer:
     def _make_times(self):
         self.times = list(range(self.current_timestep, self.current_timestep+self.horizon_width*int(60/self.resolution)))
 
+
+    def _make_line_capacities(self):
+        if self.line_capacities == None:
+            return {i: 270 for i in self.lines}
+        else:
+            return {i: self.line_capacities[i] for i in self.lines}
 
     def _make_occupancy_times(self):
         self.occupancy_times = list(itt.chain(*[[(t,b.home_bus) for t in self.times if t >= self.bevs[b.home_bus].t_start
@@ -343,6 +348,7 @@ class GridLineOptimizer:
         model.u_min = self.u_min
         model.u_trafo = self.u_trafo
         model.i_max = self.i_max
+        model.line_capacities = pe.Param(model.lines, initialize=self.line_capacities_list)
         model.time_costs = pe.Param(model.times, initialize={t: t for t in model.times})
 
         def get_household_currents(model, time, bus):
@@ -372,9 +378,12 @@ class GridLineOptimizer:
 
         # Zielfunktion erzeugen
         def max_power_rule(model):
+            ts = self.current_timestep
+            te = self.current_timestep + self.horizon_width * 60/self.resolution -1
             #return sum(sum(model.voltages[i]*model.I[j, i] for i in model.charger_buses) for j in model.times)
             if type(self)._OPTIONS['consider linear']:
                 return sum(sum(model.I[j, i] for i in model.charger_buses) for j in model.times)
+                #return sum(model.SOC[te, b] - model.SOC[ts, b] for b in model.charger_buses)
             else:
                 return sum(sum(model.U[t, n] * model.I[t,n] for n in model.charger_buses) for t in model.times)
             #return sum(model.voltages_tf[t, b] * model.I[t, b] for (t, b) in model.occupancy_times)
@@ -407,6 +416,13 @@ class GridLineOptimizer:
 
         def max_current_rule(model, t):
             return sum(model.I[t, b] for b in model.charger_buses) + sum(model.household_currents[t, b] for b in model.buses) <= model.i_max
+
+
+        def line_capacities_rule(model, t, b):
+            fn = b # first relevant node to consider
+            return sum(model.I[t, b] for b in model.charger_buses if b >= fn) + sum(
+                model.household_currents[t, b] for b in model.buses if b >= fn
+            ) <= model.line_capacities[b]
 
 
         def track_socs_rule(model, t, b):
@@ -462,6 +478,7 @@ class GridLineOptimizer:
             model.calc_voltages = pe.Constraint(model.times*model.buses, rule=calc_voltages_rule)
 
         model.max_current = pe.Constraint(model.times, rule=max_current_rule)
+        model.keep_line_capacities = pe.Constraint(model.times*model.buses, rule=line_capacities_rule)
         model.track_socs = pe.Constraint(model.times*model.charger_buses, rule=track_socs_rule)
         # mit diesem Constraint kommt dasselbe raus, als hätte man nur track_socs aktiv
         model.ensure_final_soc = pe.Constraint(model.charger_buses, rule=ensure_final_soc_rule)
@@ -586,6 +603,10 @@ class GridLineOptimizer:
 
     def display_max_current_constraint(self):
         self.optimization_model.max_current.pprint()
+
+
+    def display_keep_line_capacities_constraint(self):
+        self.optimization_model.keep_line_capacities.pprint()
 
 
     def display_track_socs_constraint(self):
