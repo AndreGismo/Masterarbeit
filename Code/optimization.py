@@ -472,6 +472,19 @@ class GridLineOptimizer:
                 <= type(self)._OPTIONS['equal SOCs']
 
 
+        def alt_equal_socs_rule(model, j, k):
+            ft = self.current_timestep + self.horizon_width * 60 / self.resolution - 1
+            if j < len(model.charger_buses)-1:
+                if k > j:
+                    return (model.SOC[ft, j] - self.bevs[j].soc_start)/(self.bevs[j].soc_target-self.bevs[j].soc_start)\
+                           -(model.SOC[ft, k] - self.bevs[k].soc_start)/(self.bevs[k].soc_target-self.bevs[k].soc_start)\
+                           <= type(self)._OPTIONS['equal SOCs']
+                else:
+                    return pe.Constraint.Skip
+            else:
+                return pe.Constraint.Skip
+
+
         if type(self)._OPTIONS['consider linear']:
             model.min_voltage = pe.Constraint(model.times, rule=min_voltage_rule)
         else:
@@ -487,7 +500,7 @@ class GridLineOptimizer:
         if type(self)._OPTIONS['fairness'] < 27:
             model.fair_charging = pe.Constraint(model.times*model.charger_buses, rule=fair_charging_rule)
         if type(self)._OPTIONS['equal SOCs'] < 1:
-            model.equal_socs = pe.Constraint(model.charger_buses, rule=equal_socs_rule)
+            model.equal_socs = pe.Constraint(model.charger_buses*model.charger_buses, rule=alt_equal_socs_rule)
 
         #return model
         self.optimization_model = model
