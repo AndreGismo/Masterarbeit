@@ -285,25 +285,30 @@ class GridLineOptimizer:
     def _make_impedances(self, impedances):
         if impedances == None:
             return {i: 2e-4 for i in self.lines}
+
         elif type(impedances) == int or type(impedances) == float:
             return {i: impedances for i in self.lines}
+
         else:
             if not len(impedances) == len(self.lines):
                 raise ValueError("Length of gridline is {}, but {} line impedances were passed"
                                  .format(len(self.lines), len(impedances)))
-                print('ich war hier!!')
+
             return {i: impedances[i] for i in self.lines}
 
 
     def _make_line_lengths(self, lenghts):
         if lenghts == None:
             return {i: 20 for i in self.lines}
+
         elif type(lenghts) == int or type(lenghts) == float:
             return {i: lenghts for i in self.lines}
+
         else:
             if not len(lenghts) == len(self.lines):
                 raise ValueError("Length of gridline is {}, but {} line lenghts were passed"
                                  .format(len(self.lines), len(lenghts)))
+
             return {i: lenghts[i] for i in self.lines}
 
 
@@ -630,7 +635,9 @@ class GridLineOptimizer:
     def get_grid_specs(self):
         specs = {'buses': self.number_buses,
                  'S transformer': self.s_trafo,
-                 'line impedance': self.impedance,
+                 'line specific impedances': self.impedances,
+                 'line lenghts': self.line_lengths,
+                 'line resulting impedances': self.resulting_impedances
                  'i line max': self.i_max}
 
         return specs
