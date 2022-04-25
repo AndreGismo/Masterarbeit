@@ -106,8 +106,8 @@ class GridLineOptimizer:
                 'fairness': 27,
                 'equal SOCs': 1}
 
-    def __init__(self, number_buses, bevs, households, horizon_width=24, voltages=None, impedances=None,
-                 lenghts=None, line_capacities=None, resolution=60, s_trafo_kVA=100, solver='glpk'):
+    def __init__(self, number_buses, bevs, households, horizon_width=24, voltages=None, line_impedances=None,
+                 line_lengths=None, line_capacities=None, resolution=60, s_trafo_kVA=100, solver='glpk'):
         self.current_timestep = 0
         self.resolution = resolution
         self.horizon_width = horizon_width
@@ -133,8 +133,8 @@ class GridLineOptimizer:
         self.solver_factory = pe.SolverFactory(self.solver)
 
         self.line_capacities = self._make_line_capacities(line_capacities)
-        self.impedances = self._make_impedances(impedances)
-        self.line_lengths = self._make_line_lengths(lenghts)
+        self.impedances = self._make_impedances(line_impedances)
+        self.line_lengths = self._make_line_lengths(line_lengths)
         self.resulting_impedances = self._make_resulting_impedances()
 
         self._make_bev_dict(bevs)
