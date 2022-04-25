@@ -106,15 +106,14 @@ class GridLineOptimizer:
                 'fairness': 27,
                 'equal SOCs': 1}
 
-    def __init__(self, number_buses, bevs, households, horizon_width=24, impedance=0.004, voltages=None,
-                 impedances=None, lenghts=None, line_capacities=None, resolution=60, s_trafo_kVA=100, solver='glpk'):
+    def __init__(self, number_buses, bevs, households, horizon_width=24, voltages=None, impedances=None,
+                 lenghts=None, line_capacities=None, resolution=60, s_trafo_kVA=100, solver='glpk'):
         self.current_timestep = 0
         self.resolution = resolution
         self.horizon_width = horizon_width
         self.number_buses = number_buses
         self.buses = self._make_buses()
         self.lines = self._make_lines()
-        self.line_capacities = self._make_line_capacities(line_capacities)
         self._make_times()
         if voltages == None:
             self.voltages = self._make_voltages()
@@ -124,8 +123,8 @@ class GridLineOptimizer:
         self.u_trafo = 400
         self.u_min = 0.9*self.u_trafo
         self.s_trafo = s_trafo_kVA
-        self.i_max = s_trafo_kVA*1000 / 400
-        self.impedance = impedance
+        self.i_max = self.s_trafo*1000 / self.u_trafo
+
         if type(self)._OPTIONS['consider linear']:
             self.solver = solver
         else:
@@ -133,6 +132,7 @@ class GridLineOptimizer:
 
         self.solver_factory = pe.SolverFactory(self.solver)
 
+        self.line_capacities = self._make_line_capacities(line_capacities)
         self.impedances = self._make_impedances(impedances)
         self.line_lengths = self._make_line_lengths(lenghts)
         self.resulting_impedances = self._make_resulting_impedances()
@@ -259,7 +259,7 @@ class GridLineOptimizer:
 
     def _make_line_capacities(self, capacities):
         if capacities == None:
-            return {i: 270 for i in self.lines}
+            return {i: self.i_max for i in self.lines}
         elif type(capacities) == int or type(capacities) == float:
             return {i: capacities for i in self.lines}
         else:
@@ -637,8 +637,8 @@ class GridLineOptimizer:
                  'S transformer': self.s_trafo,
                  'line specific impedances': self.impedances,
                  'line lenghts': self.line_lengths,
-                 'line resulting impedances': self.resulting_impedances
-                 'i line max': self.i_max}
+                 'line resulting impedances': self.resulting_impedances,
+                 'line capacities': self.line_capacities}
 
         return specs
 
