@@ -25,6 +25,7 @@ class BatteryElectricVehicle:
         self.horizon_width = None # bekommt von GLO mitgeteilt
         self.occupancies = None # wird auch von GLO aus aufgerufen
         self.current_soc = soc_start
+        self._make_waiting_times()
 
 
     def update_soc(self, value):
@@ -65,6 +66,15 @@ class BatteryElectricVehicle:
         # calculate P(SOC)
         p_soc = self.p_load * np.exp((80-self.current_soc)/kl)
         return p_soc
+
+
+    def _make_waiting_times(self):
+        self.waiting_times = [0 for _ in range(int(24*60/self.resolution))]
+        waited = 0
+        for num, val in enumerate(self.waiting_times):
+            if num >= self.t_start and num < self.t_target:
+                self.waiting_times[num] = waited
+                waited += 1
 
 
     # wird von GLO aus aufgerufen

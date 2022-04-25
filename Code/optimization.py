@@ -86,6 +86,7 @@ if not find_executable('ipopt'):
 import time
 import os
 from os import path as op
+import numpy as np
 from battery_electric_vehicle import BatteryElectricVehicle as BEV
 from household import Household as HH
 
@@ -105,16 +106,15 @@ class GridLineOptimizer:
                 'fairness': 27,
                 'equal SOCs': 1}
 
-    def __init__(self, number_buses, bevs, households, charger_locs=None, horizon_width=24, impedance=0.004,
-                 voltages=None, impedances=None, line_capacities=None, resolution=60, s_trafo_kVA=100, solver='glpk'):
+    def __init__(self, number_buses, bevs, households, horizon_width=24, impedance=0.004, voltages=None,
+                 impedances=None, line_capacities=None, resolution=60, s_trafo_kVA=100, solver='glpk'):
         self.current_timestep = 0
         self.resolution = resolution
         self.horizon_width = horizon_width
         self.number_buses = number_buses
         self.buses = self._make_buses()
         self.lines = self._make_lines()
-        self.line_capacities = line_capacities
-        self.line_capacities_list = self._make_line_capacities()
+        self.line_capacities = self._make_line_capacities(line_capacities)
         self._make_times()
         if voltages == None:
             self.voltages = self._make_voltages()
@@ -258,11 +258,16 @@ class GridLineOptimizer:
         self.times = list(range(self.current_timestep, self.current_timestep+self.horizon_width*int(60/self.resolution)))
 
 
-    def _make_line_capacities(self):
-        if self.line_capacities == None:
+    def _make_line_capacities(self, capacities):
+        if capacities == None:
             return {i: 270 for i in self.lines}
+        elif type(capacities) == int or type(capacities) == float:
+            return {i: capacities for i in self.lines}
         else:
-            return {i: self.line_capacities[i] for i in self.lines}
+            if not len(capacities) == len(self.lines):
+                raise ValueError("Length of gridline is {}, but {} line capacities were passed"
+                                 .format(len(self.lines), len(self.line_capacities)))
+            return {i: capacities[i] for i in self.lines}
 
     def _make_occupancy_times(self):
         self.occupancy_times = list(itt.chain(*[[(t,b.home_bus) for t in self.times if t >= self.bevs[b.home_bus].t_start
@@ -348,7 +353,7 @@ class GridLineOptimizer:
         model.u_min = self.u_min
         model.u_trafo = self.u_trafo
         model.i_max = self.i_max
-        model.line_capacities = pe.Param(model.lines, initialize=self.line_capacities_list)
+        model.line_capacities = pe.Param(model.lines, initialize=self.line_capacities)
         model.time_costs = pe.Param(model.times, initialize={t: t for t in model.times})
 
         def get_household_currents(model, time, bus):
@@ -382,7 +387,7 @@ class GridLineOptimizer:
             te = self.current_timestep + self.horizon_width * 60/self.resolution -1
             #return sum(sum(model.voltages[i]*model.I[j, i] for i in model.charger_buses) for j in model.times)
             if type(self)._OPTIONS['consider linear']:
-                return sum(sum(model.I[j, i] for i in model.charger_buses) for j in model.times)
+                return sum(sum(model.I[j, i] for j in model.times) for i in model.charger_buses)
                 #return sum(model.SOC[te, b] - model.SOC[ts, b] for b in model.charger_buses)
             else:
                 return sum(sum(model.U[t, n] * model.I[t,n] for n in model.charger_buses) for t in model.times)
@@ -474,7 +479,7 @@ class GridLineOptimizer:
 
         def alt_equal_socs_rule(model, j, k):
             ft = self.current_timestep + self.horizon_width * 60 / self.resolution - 1
-            if j < len(model.charger_buses)-1:
+            if j < np.max(model.charger_buses): #hier muss nicht die Länge, sondern das MAXIMUM in charger_buses verwendet werden!
                 if k > j:
                     return (model.SOC[ft, j] - self.bevs[j].soc_start)/(self.bevs[j].soc_target-self.bevs[j].soc_start)\
                            -(model.SOC[ft, k] - self.bevs[k].soc_start)/(self.bevs[k].soc_target-self.bevs[k].soc_start)\
@@ -500,7 +505,7 @@ class GridLineOptimizer:
         if type(self)._OPTIONS['fairness'] < 27:
             model.fair_charging = pe.Constraint(model.times*model.charger_buses, rule=fair_charging_rule)
         if type(self)._OPTIONS['equal SOCs'] < 1:
-            model.equal_socs = pe.Constraint(model.charger_buses*model.charger_buses, rule=alt_equal_socs_rule)
+            model.equal_socs = pe.Constraint(model.charger_buses, rule=equal_socs_rule)
 
         #return model
         self.optimization_model = model
