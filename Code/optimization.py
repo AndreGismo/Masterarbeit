@@ -106,15 +106,14 @@ class GridLineOptimizer:
                 'fairness': 27,
                 'equal SOCs': 1}
 
-    def __init__(self, number_buses, bevs, households, horizon_width=24, impedance=0.004, voltages=None,
-                 impedances=None, line_capacities=None, resolution=60, s_trafo_kVA=100, solver='glpk'):
+    def __init__(self, number_buses, bevs, households, horizon_width=24, voltages=None, impedances=None,
+                 lenghts=None, line_capacities=None, resolution=60, s_trafo_kVA=100, solver='glpk'):
         self.current_timestep = 0
         self.resolution = resolution
         self.horizon_width = horizon_width
         self.number_buses = number_buses
         self.buses = self._make_buses()
         self.lines = self._make_lines()
-        self.line_capacities = self._make_line_capacities(line_capacities)
         self._make_times()
         if voltages == None:
             self.voltages = self._make_voltages()
@@ -124,8 +123,8 @@ class GridLineOptimizer:
         self.u_trafo = 400
         self.u_min = 0.9*self.u_trafo
         self.s_trafo = s_trafo_kVA
-        self.i_max = s_trafo_kVA*1000 / 400
-        self.impedance = impedance
+        self.i_max = self.s_trafo*1000 / self.u_trafo
+
         if type(self)._OPTIONS['consider linear']:
             self.solver = solver
         else:
@@ -133,10 +132,10 @@ class GridLineOptimizer:
 
         self.solver_factory = pe.SolverFactory(self.solver)
 
-        if impedances == None:
-            self.impedances = self._make_impedances()
-        else:
-            self.impedances = impedances
+        self.line_capacities = self._make_line_capacities(line_capacities)
+        self.impedances = self._make_impedances(impedances)
+        self.line_lengths = self._make_line_lengths(lenghts)
+        self.resulting_impedances = self._make_resulting_impedances()
 
         self._make_bev_dict(bevs)
         self._setup_bevs()
@@ -260,13 +259,13 @@ class GridLineOptimizer:
 
     def _make_line_capacities(self, capacities):
         if capacities == None:
-            return {i: 270 for i in self.lines}
+            return {i: self.i_max for i in self.lines}
         elif type(capacities) == int or type(capacities) == float:
             return {i: capacities for i in self.lines}
         else:
             if not len(capacities) == len(self.lines):
                 raise ValueError("Length of gridline is {}, but {} line capacities were passed"
-                                 .format(len(self.lines), len(self.line_capacities)))
+                                 .format(len(self.lines), len(capacities)))
             return {i: capacities[i] for i in self.lines}
 
     def _make_occupancy_times(self):
@@ -283,8 +282,39 @@ class GridLineOptimizer:
         return {(t, b): 400 - b / 2 for (t, b) in self.occupancy_times}
 
 
-    def _make_impedances(self):
-        return {i: self.impedance for i in self.lines}  # 0.004
+    def _make_impedances(self, impedances):
+        if impedances == None:
+            return {i: 2e-4 for i in self.lines}
+
+        elif type(impedances) == int or type(impedances) == float:
+            return {i: impedances for i in self.lines}
+
+        else:
+            if not len(impedances) == len(self.lines):
+                raise ValueError("Length of gridline is {}, but {} line impedances were passed"
+                                 .format(len(self.lines), len(impedances)))
+
+            return {i: impedances[i] for i in self.lines}
+
+
+    def _make_line_lengths(self, lenghts):
+        if lenghts == None:
+            return {i: 20 for i in self.lines}
+
+        elif type(lenghts) == int or type(lenghts) == float:
+            return {i: lenghts for i in self.lines}
+
+        else:
+            if not len(lenghts) == len(self.lines):
+                raise ValueError("Length of gridline is {}, but {} line lenghts were passed"
+                                 .format(len(self.lines), len(lenghts)))
+
+            return {i: lenghts[i] for i in self.lines}
+
+
+    def _make_resulting_impedances(self):
+        return {num: self.line_lengths[num]*impedance for num, impedance in enumerate(self.impedances.values())}
+
 
 
     def _prepare_next_timestep(self):
@@ -344,7 +374,7 @@ class GridLineOptimizer:
         #model.occupancy_times = pe.Set(initialize=self.occupancy_times)
 
         # create parameters
-        model.impedances = pe.Param(model.lines, initialize=self.impedances)
+        model.impedances = pe.Param(model.lines, initialize=self.resulting_impedances)
         if type(self)._OPTIONS['consider linear']:
             # voltage as parameter, only if consider linear problem,
             # otherwise voltage as decission variable few lines below
@@ -605,8 +635,10 @@ class GridLineOptimizer:
     def get_grid_specs(self):
         specs = {'buses': self.number_buses,
                  'S transformer': self.s_trafo,
-                 'line impedance': self.impedance,
-                 'i line max': self.i_max}
+                 'line specific impedances': self.impedances,
+                 'line lenghts': self.line_lengths,
+                 'line resulting impedances': self.resulting_impedances,
+                 'line capacities': self.line_capacities}
 
         return specs
 
