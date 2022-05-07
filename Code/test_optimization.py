@@ -44,8 +44,8 @@ bev_list = []
 for car in bev_lst:
     bev = BEV(soc_start=start_socs[car], soc_target=target_socs[car],
               t_target=target_times[car], e_bat=bat_energies[car],
-              resolution=resolution, home_bus=home_buses[car],
-              t_start=start_times[car], p_load=p_loads[car])
+              home_bus=home_buses[car], t_start=start_times[car],
+              p_load=p_loads[car])
     bev_list.append(bev)
 
 # Households erzeugen
