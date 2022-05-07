@@ -104,10 +104,12 @@ class GridLineOptimizer:
                 'log results': False,
                 'consider linear': True,
                 'fairness': 27,
-                'equal SOCs': 1}
+                'equal SOCs': 1,
+                'steady charging': (0, 0),
+                'atillas constraint': False}
 
-    def __init__(self, number_buses, bevs, households, horizon_width=24, voltages=None, line_impedances=None,
-                 line_lengths=None, line_capacities=None, resolution=60, s_trafo_kVA=100, solver='glpk'):
+    def __init__(self, number_buses, bevs, households, trafo_power, horizon_width=24, voltages=None,
+                 line_impedances=None, line_lengths=None, line_capacities=None, resolution=15, solver='glpk'):
         self.current_timestep = 0
         self.resolution = resolution
         self.horizon_width = horizon_width
@@ -115,15 +117,12 @@ class GridLineOptimizer:
         self.buses = self._make_buses()
         self.lines = self._make_lines()
         self._make_times()
-        if voltages == None:
-            self.voltages = self._make_voltages()
-        else:
-            self.voltages = voltages
+        self.voltages = self._make_voltages(voltages)
 
         self.u_trafo = 400
         self.u_min = 0.9*self.u_trafo
-        self.s_trafo = s_trafo_kVA
-        self.i_max = self.s_trafo*1000 / self.u_trafo
+        self.p_trafo = trafo_power
+        self.i_max = self.p_trafo*1000 / self.u_trafo
 
         if type(self)._OPTIONS['consider linear']:
             self.solver = solver
@@ -142,7 +141,7 @@ class GridLineOptimizer:
         self.households = households
         #self._determine_charger_locs()
         self._make_occupancy_times()
-        self.voltages_tf = self._make_voltages_tf()
+        #self.voltages_tf = self._make_voltages_tf()
 
         self._make_soc_lower_bounds()
         self._make_soc_upper_bounds()
@@ -152,7 +151,7 @@ class GridLineOptimizer:
 
         #self.optimization_model = self._setup_model()
         self._setup_model()
-        self.grid = self._setup_grid()
+        #self.grid = self._setup_grid()
 
         # hier kommen dann die Ergebnisse für jeden Knoten zu jedem
         # timstep der Strom rein (die SOCs werden im BEV gespeichert)
@@ -273,13 +272,20 @@ class GridLineOptimizer:
                                                  and t <= self.bevs[b.home_bus].t_target] for b in self.bevs.values()]))
 
 
-    def _make_voltages(self):
-        return {i: 400-i/2 for i in self.buses}
-        #return {(t, b): 400-b/2 for (t, b) in self.occupancy_times}
+    def _make_voltages(self, voltages):
+        if voltages == None:
+            return {i: 400-(i+1)/2 for i in self.buses}
 
+        elif type(voltages) == int or type(voltages) == float:
+            return {i: voltages for i in self.lines}
 
-    def _make_voltages_tf(self):
-        return {(t, b): 400 - b / 2 for (t, b) in self.occupancy_times}
+        else:
+            if not len(voltages) == len(self.lines):
+                raise ValueError("Length of gridline is {}, but {} node voltages were passed"
+                                 .format(len(self.lines), len(impedances)))
+
+                return {i: voltages[i] for i in self.lines}
+
 
 
     def _make_impedances(self, impedances):
@@ -390,7 +396,8 @@ class GridLineOptimizer:
             # getielt durch die Spannung an dem Knoten, weil es ja Strom sein soll
             return self.households[bus].load_profile[time] / self.voltages[bus]
 
-        model.household_currents = pe.Param(model.times*model.buses, initialize=get_household_currents)
+        model.household_currents = pe.Param(model.times*model.buses, initialize=get_household_currents,
+                                            mutable=True)
         #print(model.household_currents[self.current_timestep, 0])
 
         # Entscheidungsvariablen erzeugen (dafür erstmal am besten ein array (timesteps x buses)
@@ -417,8 +424,9 @@ class GridLineOptimizer:
             te = self.current_timestep + self.horizon_width * 60/self.resolution -1
             #return sum(sum(model.voltages[i]*model.I[j, i] for i in model.charger_buses) for j in model.times)
             if type(self)._OPTIONS['consider linear']:
-                return sum(sum(model.I[j, i] for j in model.times) for i in model.charger_buses)
+                return sum(sum(model.I[t, b] for t in model.times) for b in model.charger_buses)
                 #return sum(model.SOC[te, b] - model.SOC[ts, b] for b in model.charger_buses)
+                #return sum(sum(model.I[t, b] * (1+self.bevs[b].waiting_times[t]/100) for t in model.times) for b in model.charger_buses)
             else:
                 return sum(sum(model.U[t, n] * model.I[t,n] for n in model.charger_buses) for t in model.times)
             #return sum(model.voltages_tf[t, b] * model.I[t, b] for (t, b) in model.occupancy_times)
@@ -450,7 +458,8 @@ class GridLineOptimizer:
 
 
         def max_current_rule(model, t):
-            return sum(model.I[t, b] for b in model.charger_buses) + sum(model.household_currents[t, b] for b in model.buses) <= model.i_max
+            return sum(model.I[t, b] for b in model.charger_buses) +\
+                   sum(model.household_currents[t, b] for b in model.buses) <= model.i_max
 
 
         def line_capacities_rule(model, t, b):
@@ -520,13 +529,49 @@ class GridLineOptimizer:
                 return pe.Constraint.Skip
 
 
+        def steady_charging_rule(model, t, b):
+            ft = self.current_timestep + self.horizon_width * 60/self.resolution -1
+            tt = type(self)._OPTIONS['steady charging'][0]
+            #if t
+            if t < ft - tt:
+                return sum(model.I[t, b] for t in model.times if t -self.current_timestep < tt)\
+                <= tt * model.I[t, b]
+
+            else:
+                return pe.Constraint.Skip
+
+
+        def atillas_rule(model, t, b):
+            """
+            function to be passed to pyomo Constructor for Constraints - not intended
+            to be called on its own.
+            :param model: model reference
+            :param b: cycles through model.charger_buses
+            :param t: cycles through model.times
+            :return: expression for constraint
+            """
+            lb = model.charger_buses.prevw(b)
+            ct = t # current timestep
+            if t >= self.bevs[b].t_start and t < self.bevs[b].t_target:
+                if b > 0:
+                    return sum(model.I[t, lb] for t in model.times) * \
+                           ((self.bevs[lb].t_target - t) / (self.bevs[lb].soc_target - model.SOC[t, lb]))**2 \
+                    <= sum(model.I[t, b] for t in model.times) * ((self.bevs[b].t_target - t) / \
+                                                                 (self.bevs[b].soc_target - model.SOC[t, b]))**2
+                else:
+                    return pe.Constraint.Skip
+
+            else:
+                return pe.Constraint.Skip
+
+
         if type(self)._OPTIONS['consider linear']:
             model.min_voltage = pe.Constraint(model.times, rule=min_voltage_rule)
         else:
             model.calc_voltages = pe.Constraint(model.times*model.buses, rule=calc_voltages_rule)
 
         model.max_current = pe.Constraint(model.times, rule=max_current_rule)
-        model.keep_line_capacities = pe.Constraint(model.times*model.buses, rule=line_capacities_rule)
+        model.keep_line_capacities = pe.Constraint(model.times*model.lines, rule=line_capacities_rule)
         model.track_socs = pe.Constraint(model.times*model.charger_buses, rule=track_socs_rule)
         # mit diesem Constraint kommt dasselbe raus, als hätte man nur track_socs aktiv
         model.ensure_final_soc = pe.Constraint(model.charger_buses, rule=ensure_final_soc_rule)
@@ -536,6 +581,10 @@ class GridLineOptimizer:
             model.fair_charging = pe.Constraint(model.times*model.charger_buses, rule=fair_charging_rule)
         if type(self)._OPTIONS['equal SOCs'] < 1:
             model.equal_socs = pe.Constraint(model.charger_buses, rule=equal_socs_rule)
+        if type(self)._OPTIONS['atillas constraint'] == True:
+            model.atillas_constraint = pe.Constraint(model.times*model.charger_buses, rule=atillas_rule)
+        if type(self)._OPTIONS['steady charging'][0] > 0:
+            model.steady_charging = pe.Constraint(model.times, model.charger_buses, rule=steady_charging_rule)
 
         #return model
         self.optimization_model = model
@@ -565,7 +614,7 @@ class GridLineOptimizer:
             pp.create_ext_grid(grid, bus=0)
 
             # Generator erzeugen
-            pp.create_transformer_from_parameters(grid, hv_bus=0, lv_bus=1, sn_mva=self.s_trafo/1000,
+            pp.create_transformer_from_parameters(grid, hv_bus=0, lv_bus=1, sn_mva=self.p_trafo/1000,
                                                   vn_hv_kv=20, vn_lv_kv=0.4, vkr_percent=1.5, pfe_kw=0.4,
                                                   i0_percent=0.4, vk_percent=6)
 
@@ -794,10 +843,10 @@ class GridLineOptimizer:
         if legend:
             ax.legend()
         ax.grid()
-        ax.set_ylabel('Strom [A]')
+        ax.set_ylabel('Ladestrom [A]')
         if compact_x:
             ax.xaxis.set_major_formatter(x_fmt)
-            ax.set_xlabel('Time [hh]')
+            ax.set_xlabel('Zeit [hh]')
         else:
             ax.set_xlabel('Zeitpunkt [MM-TT hh]')
         #ax.set_title('Strom über der Zeit -- Ergebnis der Optimierung')
@@ -888,7 +937,7 @@ class GridLineOptimizer:
 
             fig, ax = plt.subplots(2, 1, figsize=(6.5, 4), sharex=True)
             for column in SOCs_df.columns:
-                ax[0].plot(SOCs_df.index, SOCs_df[column], marker=kwargs['marker'], label=f'SOC of BEV at node {column+1}')
+                ax[0].plot(SOCs_df.index, SOCs_df[column], marker=kwargs['marker'], label=f'SOC des BEV am Knoten {column+1}')
             if legend:
                 ax[0].legend()
             ax[0].grid()
@@ -899,15 +948,15 @@ class GridLineOptimizer:
             #ax[0].set_title('SOC over time - results of optimization', fontsize=20)
 
             for column in Is_df.columns:
-                ax[1].plot(Is_df.index, Is_df[column], marker=kwargs['marker'], label=f'Current to BEV at node {column+1}')
+                ax[1].plot(Is_df.index, Is_df[column], marker=kwargs['marker'], label=f'Strom zum BEV am Knoten {column+1}')
             if legend:
                 ax[1].legend()
             ax[1].grid()
-            ax[1].set_ylabel('Current [A]')
+            ax[1].set_ylabel('Strom [A]')
             ax[1].set_xlabel('Time [mm-dd hh]', fontsize=11)
             if compact_x:
                 ax[1].xaxis.set_major_formatter(x_fmt)
-                ax[1].set_xlabel('Time [hh]')
+                ax[1].set_xlabel('Zeit [hh]')
             #ax[1].set_title('Current over time - results of optimization', fontsize=20)
             if not save:
                 plt.show()
