@@ -106,10 +106,12 @@ class GridLineOptimizer:
                 'fairness': 27,
                 'equal SOCs': 1,
                 'steady charging': (0, 0),
-                'atillas constraint': False}
+                'atillas constraint': False,
+                'equal products': False}
 
-    def __init__(self, number_buses, bevs, households, trafo_power, horizon_width=24, voltages=None,
-                 line_impedances=None, line_lengths=None, line_capacities=None, resolution=15, solver='glpk'):
+    def __init__(self, number_buses, bevs, households, trafo_power, resolution, horizon_width=24,
+                 voltages=None, line_impedances=None, line_lengths=None, line_capacities=None,
+                 solver='glpk'):
         self.current_timestep = 0
         self.resolution = resolution
         self.horizon_width = horizon_width
@@ -541,6 +543,30 @@ class GridLineOptimizer:
                 return pe.Constraint.Skip
 
 
+        def equal_product_rule(model, b):
+            """
+            the product of bev soc_start and the amount of what they reach
+            of their intended loaded difference, should be equal for all bevs
+            => people with lower start_socs get more loaded (relative to how much
+            they want to be loaded
+            :param model:
+            :param b:
+            :return:
+            """
+            lb = model.charger_buses.prevw(b)
+            # last considered timestep
+            lt = self.current_timestep + self.horizon_width * 60/self.resolution -1
+            # first considered timestep
+            ft = self.bevs[b].t_start
+            if b > 0:
+                return self.bevs[b].soc_start * (model.SOC[lt, b] - model.SOC[ft, b])/ \
+                       (self.bevs[b].soc_target - self.bevs[b].soc_start) - \
+                       self.bevs[lb].soc_start * (model.SOC[lt, lb] - model.SOC[ft, lb]) / \
+                       (self.bevs[lb].soc_target - self.bevs[lb].soc_start) == 0
+            else:
+                return pe.Constraint.Skip
+
+
         def atillas_rule(model, t, b):
             """
             function to be passed to pyomo Constructor for Constraints - not intended
@@ -585,6 +611,8 @@ class GridLineOptimizer:
             model.atillas_constraint = pe.Constraint(model.times*model.charger_buses, rule=atillas_rule)
         if type(self)._OPTIONS['steady charging'][0] > 0:
             model.steady_charging = pe.Constraint(model.times, model.charger_buses, rule=steady_charging_rule)
+        if type(self)._OPTIONS['equal products'] == True:
+            model.equal_products = pe.Constraint(model.buses, rule=equal_product_rule)
 
         #return model
         self.optimization_model = model
