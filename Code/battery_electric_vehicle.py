@@ -6,17 +6,17 @@ wie groß die Batterie ist.
 import numpy as np
 
 class BatteryElectricVehicle:
-    def __init__(self, home_bus, soc_start, soc_target, t_start, t_target,
-                 e_bat=50, current_timestep=0, p_load=11,
+    def __init__(self, home_bus, e_bat=50, soc_start=50, soc_target=100, t_target=17,
+                 t_start=14, resolution=60, current_timestep=0, p_load=11,
                  recurring='daily'):
         self.home_bus = home_bus
         self.e_bat = e_bat
         #self.bus_voltage = bus_voltage
         self.soc_start = soc_start
         self.soc_target = soc_target
-        self.resolution = None
-        self.t_target = t_target#int(t_target * 60 / self.resolution)
-        self.t_start = t_start#int(t_start * 60/ self.resolution)
+        self.resolution = resolution
+        self.t_target = int(t_target * 60 / self.resolution)
+        self.t_start = int(t_start * 60/self.resolution)
         self.p_load = p_load
         self.soc_list = [soc_start]
         self.is_loading = True
@@ -25,7 +25,7 @@ class BatteryElectricVehicle:
         self.horizon_width = None # bekommt von GLO mitgeteilt
         self.occupancies = None # wird auch von GLO aus aufgerufen
         self.current_soc = soc_start
-        #self._make_waiting_times()
+        self._make_waiting_times()
 
 
     def update_soc(self, value):
@@ -90,15 +90,6 @@ class BatteryElectricVehicle:
     # wird von GLO aus aufgerufen
     def set_horizon_width(self, width_hrs):
         self.horizon_width = width_hrs
-
-
-    def set_resolution(self, resolution_mins):
-        self.resolution = resolution_mins
-
-
-    def calc_times(self):
-        self.t_start = int(self.t_start * 60 / self.resolution)
-        self.t_target = int(self.t_target * 60 / self.resolution)
 
 
     def enter_soc(self, soc):

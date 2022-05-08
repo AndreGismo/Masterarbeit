@@ -226,9 +226,6 @@ class GridLineOptimizer:
     def _setup_bevs(self):
         for bev in self.bevs.values():
             bev.set_horizon_width(self.horizon_width)
-            bev.set_resolution(self.resolution)
-            bev.calc_times()
-            bev._make_waiting_times()
             bev.make_occupancies()
 
 
@@ -322,8 +319,7 @@ class GridLineOptimizer:
 
 
     def _make_resulting_impedances(self):
-        return {num: self.line_lengths[num]*impedance for num, impedance
-                in enumerate(self.impedances.values())}
+        return {num: self.line_lengths[num]*impedance for num, impedance in enumerate(self.impedances.values())}
 
 
 
