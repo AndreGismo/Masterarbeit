@@ -6,9 +6,9 @@ wie groß die Batterie ist.
 import numpy as np
 
 class BatteryElectricVehicle:
-    def __init__(self, home_bus, e_bat=50, soc_start=50, soc_target=100, t_target=17,
-                 t_start=14, resolution=60, current_timestep=0, p_load=11,
-                 recurring='daily'):
+    def __init__(self, home_bus, soc_start, soc_target, t_target,
+                 t_start, resolution, current_timestep=0, p_load=11,
+                 e_bat=50, recurring='daily'):
         self.home_bus = home_bus
         self.e_bat = e_bat
         #self.bus_voltage = bus_voltage
