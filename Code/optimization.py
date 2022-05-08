@@ -711,7 +711,7 @@ class GridLineOptimizer:
 
     def get_grid_specs(self):
         specs = {'buses': self.number_buses,
-                 'S transformer': self.s_trafo,
+                 'S transformer': self.p_trafo,
                  'line specific impedances': self.impedances,
                  'line lenghts': self.line_lengths,
                  'line resulting impedances': self.resulting_impedances,
