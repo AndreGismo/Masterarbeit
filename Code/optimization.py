@@ -398,6 +398,7 @@ class GridLineOptimizer:
             # getielt durch die Spannung an dem Knoten, weil es ja Strom sein soll
             return self.households[bus].load_profile[time] / self.voltages[bus]
 
+
         model.household_currents = pe.Param(model.times*model.buses, initialize=get_household_currents,
                                             mutable=True)
         #print(model.household_currents[self.current_timestep, 0])
@@ -931,14 +932,15 @@ class GridLineOptimizer:
             plt.savefig('res_opt_soc.pdf', bbox_inches='tight')
 
 
-    def plot_all_results(self, legend=True, save=False, usetex=False, compact_x=False, **kwargs):
+    def plot_all_results(self, legend=True, save=False, usetex=False, compact_x=False,
+                         export_data=False, **kwargs):
         if usetex:
             plt.rcParams['text.usetex'] = True
             plt.rcParams['font.family'] = 'serif'
             plt.rcParams['grid.linewidth'] = 0.4
             plt.rcParams['lines.linewidth'] = 1
             plt.rcParams['legend.fontsize'] = 8
-            plt.rcParams['font.size'] = 11
+            plt.rcParams['font.size'] = 10.95
 
         if compact_x:
             x_fmt = mdates.DateFormatter('%H')
@@ -959,13 +961,19 @@ class GridLineOptimizer:
                     Is[bus].append(self.optimization_model.I[time, bus].value)
 
             SOCs_df = pd.DataFrame(SOCs)
+            if export_data:
+                SOCs_df.index = np.linspace(0, self.horizon_width, self.horizon_width*int(60/self.resolution))
+                SOCs_df.to_csv('SOCs.dat', sep='\t')
             SOCs_df.index = pd.date_range(start='2021', periods=len(SOCs_df), freq=str(self.resolution)+'min')
             Is_df = pd.DataFrame(Is)
+            if export_data:
+                Is_df.index = np.linspace(0, self.horizon_width, self.horizon_width * int(60 / self.resolution))
+                Is_df.to_csv('Is.dat', sep='\t')
             Is_df.index = pd.date_range(start='2021', periods=len(SOCs_df), freq=str(self.resolution) + 'min')
 
-            fig, ax = plt.subplots(2, 1, figsize=(6.5, 4), sharex=True)
+            fig, ax = plt.subplots(2, 1, figsize=(6.3, 4), sharex=True)
             for column in SOCs_df.columns:
-                ax[0].plot(SOCs_df.index, SOCs_df[column], marker=kwargs['marker'], label=f'SOC des BEV am Knoten {column+1}')
+                ax[0].plot(SOCs_df.index, SOCs_df[column], marker=kwargs['marker'], label=f'Knoten {column+1}')
             if legend:
                 ax[0].legend()
             ax[0].grid()
@@ -976,7 +984,7 @@ class GridLineOptimizer:
             #ax[0].set_title('SOC over time - results of optimization', fontsize=20)
 
             for column in Is_df.columns:
-                ax[1].plot(Is_df.index, Is_df[column], marker=kwargs['marker'], label=f'Strom zum BEV am Knoten {column+1}')
+                ax[1].plot(Is_df.index, Is_df[column], marker=kwargs['marker'], label=f'Knoten {column+1}')
             if legend:
                 ax[1].legend()
             ax[1].grid()
