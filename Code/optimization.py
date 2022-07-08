@@ -141,6 +141,7 @@ class GridLineOptimizer:
         self._make_bev_dict(bevs)
         self._setup_bevs()
         self.households = households
+        self._make_household_currents()
         #self._determine_charger_locs()
         self._make_occupancy_times()
         #self.voltages_tf = self._make_voltages_tf()
@@ -324,10 +325,27 @@ class GridLineOptimizer:
         return {num: self.line_lengths[num]*impedance for num, impedance in enumerate(self.impedances.values())}
 
 
+    def _make_household_currents(self):
+        self.household_currents = {t: {hh.home_bus: hh.load_profile[t] / self.voltages[hh.home_bus]
+                                       for hh in self.households} for t in self.times}
+
+
+    def _update_household_currents(self, current_values):
+        """
+        befor the model for the next horizon gets built, invoke this method to override the values
+        of the first timestep (the current timestep) in the current horizon. IMPORTANT: make sure
+        current timestep is incremented before this method gets called.
+        :param current_values: dict {bus1: current, bus2: current, ...}
+        :return: None
+        """
+        self.household_currents.update({self.current_timestep: {hh: current_values[hh.home_bus]
+                                                                for hh in self.households}})
+
 
     def _prepare_next_timestep(self):
         self.current_timestep += 1
         self._make_times()
+        self._make_household_currents()
         # Ergebnisse des zweiten timesteps des vorherigen horizons nehmen und an
         # die erste Stelle der soc_upper und lower_bounds schreiben (dasselbe auch
         # für I? => nein, weil kein Speicher! (oder doch?!))
@@ -396,7 +414,7 @@ class GridLineOptimizer:
 
         def get_household_currents(model, time, bus):
             # getielt durch die Spannung an dem Knoten, weil es ja Strom sein soll
-            return self.households[bus].load_profile[time] / self.voltages[bus]
+            return self.household_currents[time][bus] #/ self.voltages[bus]
 
 
         model.household_currents = pe.Param(model.times*model.buses, initialize=get_household_currents,
@@ -798,14 +816,22 @@ class GridLineOptimizer:
             self.log_results()
 
 
-    def run_optimization_rolling_horizon(self, complete_horizon, **kwargs):
+    def run_optimization_rolling_horizon(self, complete_horizon, add_sudden_loads=None, **kwargs):
         steps = int(complete_horizon * 60/self.resolution)
-        for i in range(steps):
+        self.run_optimization_single_timestep(tee=kwargs['tee'])
+        for i in range(1, steps):
             print(i)
+            self._prepare_next_timestep()
+            if not add_sudden_loads == None:
+                if i == add_sudden_loads['t event']:
+                    print('added sudden loads on slef.current_timestep', self.current_timestep)
+                    self._update_household_currents(add_sudden_loads['values'])
+
+            self._setup_model()
             self.run_optimization_single_timestep(tee=kwargs['tee'])
             self._store_results()
-            self._prepare_next_timestep()
-            self._setup_model()
+            #self._prepare_next_timestep()
+            #self._setup_model()
 
 
     def plot_grid(self):

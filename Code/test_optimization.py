@@ -15,14 +15,19 @@ from household import Household as HH
 
 import matplotlib.pyplot as plt
 
-ROLLING = False#'experimental'
+ROLLING = True#'experimental'
 
-resolution = 5
+resolution = 15
 buses = 6
 bevs = 6
 bev_lst = list(range(bevs))
 bus_lst = list(range(buses))
 p_trafo = 150  #kVA
+
+add_sudd_loads = {
+    't event': 38,
+    'values': {0: 24e3, 1: 24e3, 2: 24e3, 3: 24e3, 4: 24e3, 5: 24e3}
+}
 
 # BEVs
 home_buses = [0, 1, 2, 3, 4, 5]#[1, 3]#[0, 1, 2, 3, 4, 5]
@@ -33,7 +38,7 @@ start_times = [2, 2, 2, 2, 2, 2]#[15, 17]#[2, 2, 2, 2, 2, 2]
 bat_energies = [50, 50, 50, 50, 50, 50]#[50, 50]#[50, 50, 50, 50, 50, 50]
 p_loads = [11, 11, 11, 11, 11, 11]#[11, 11]#[11, 11, 11, 11, 11, 11]
 impedances = 2e-4
-lengths = [30, 20, 30, 30, 20, 20]
+lengths = [20, 20, 20, 20, 20, 20]
 
 
 # Households
@@ -63,6 +68,7 @@ for bus in bus_lst:
 #GLO.set_options('equal SOCs', 0)
 #GLO.set_options('atillas constraint', True)
 #GLO.set_options('steady charging', (3, 4))
+#GLO.set_options('equal products', True)
 
 test = GLO(number_buses=buses, bevs=bev_list, resolution=resolution, trafo_power=p_trafo,
            households=household_list, horizon_width=24, line_impedances=impedances,
@@ -72,13 +78,14 @@ test = GLO(number_buses=buses, bevs=bev_list, resolution=resolution, trafo_power
 #test.display_keep_line_capacities_constraint()
 #test.optimization_model.keep_line_capacities.pprint()
 #test.optimization_model.steady_charging.pprint()
-
+test.optimization_model.I.pprint()
+test.optimization_model.max_power.pprint()
 
 # optimieren lassen
 if ROLLING == False:
     test.run_optimization_single_timestep(tee=True)
     test.optimization_model.SOC.pprint()
-    test.plot_all_results(marker=None, save=False, usetex=True, compact_x=True)
+    test.plot_all_results(marker=None, save=True, usetex=True, compact_x=True, export_data=True)
     #test.plot_I_results(marker=None, save=True, usetex=True, compact_x=True)
     #test.plot_SOC_results(marker=None, save=True, usetex=True, compact_x=True)
     #test.export_grid()
@@ -87,7 +94,7 @@ if ROLLING == False:
 
 
 if ROLLING == True:
-    test.run_optimization_rolling_horizon(24, tee=False)
+    test.run_optimization_rolling_horizon(24, tee=False, add_sudden_loads=add_sudd_loads)
     for key in test.results_I:
         print(test.results_I[key])
 
