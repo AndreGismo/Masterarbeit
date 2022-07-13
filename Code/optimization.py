@@ -145,8 +145,9 @@ class GridLineOptimizer:
         self._make_occupancy_times()
         #self.voltages_tf = self._make_voltages_tf()
 
-        self._make_soc_lower_bounds()
-        self._make_soc_upper_bounds()
+        self._prepare_soc_lower_bounds()
+        self._prepare_soc_upper_bounds()
+        self._fix_first_socs()
 
         self._prepare_i_lower_bounds()
         self._prepare_i_upper_bounds()
@@ -233,17 +234,22 @@ class GridLineOptimizer:
 
     def _prepare_soc_lower_bounds(self):
         soc_lower_bounds = {bev.home_bus: {t: bev.soc_start for t in self.times} for bev in self.bevs.values()}
-        for bev in self.bevs.values():
-            # alle werte von current_timestep
-            #soc_lower_bounds[bev.home_bus][bev.t_target - self.current_timestep] = bev.soc_target
-            #soc_lower_bounds[bev.home_bus][bev.t_target] = bev.soc_target
-            pass
+        # for bev in self.bevs.values():
+        #     # alle werte von current_timestep
+        #     #soc_lower_bounds[bev.home_bus][bev.t_target - self.current_timestep] = bev.soc_target
+        #     #soc_lower_bounds[bev.home_bus][bev.t_target] = bev.soc_target
+        #     pass
         self.soc_lower_bounds = soc_lower_bounds
 
 
     def _prepare_soc_upper_bounds(self):
         soc_upper_bounds = {bev.home_bus: {t: bev.soc_target for t in self.times} for bev in self.bevs.values()}
         self.soc_upper_bounds = soc_upper_bounds
+
+
+    def _fix_first_socs(self):
+        for bev in self.bevs.values():
+            self.soc_upper_bounds[bev.home_bus][0] = bev.soc_start
 
 
     def _make_buses(self):
@@ -324,37 +330,36 @@ class GridLineOptimizer:
         return {num: self.line_lengths[num]*impedance for num, impedance in enumerate(self.impedances.values())}
 
 
+    def _carry_over_last_socs(self):
+        """
+        after each run of the optimizer, fetch the results from the optimization
+        model (the socs of the second timestep in the current horizon) and use
+        these values as new upper and lower bounds for the first timestep in
+        the next horizon ("sandwich method" to ensure energy conservation over
+        multiple horizons). IMPORTANT: call it AFTER the current_timestep has
+        been incremented and AFTER _prepare_soc_upper/lower_bounds have been
+        called
+        :return: None
+        """
+        # get the socs out of the optimization model
+        socs_to_carry_over = [self.optimization_model.SOC[self.current_timestep,
+                              bus].value for bus in self.bevs]
+
+        # and use them as upper and lower bounds, first lower
+        for num, bus in enumerate(self.bevs):
+            self.soc_lower_bounds[bus][self.current_timestep] = socs_to_carry_over[num]
+            self.soc_upper_bounds[bus][self.current_timestep] = socs_to_carry_over[num]
+
 
     def _prepare_next_timestep(self):
         self.current_timestep += 1
         self._make_times()
-        # Ergebnisse des zweiten timesteps des vorherigen horizons nehmen und an
-        # die erste Stelle der soc_upper und lower_bounds schreiben (dasselbe auch
-        # für I? => nein, weil kein Speicher! (oder doch?!))
-        SOCs2 = []
-        #SOCs2 = {bus: None for bus in self.bevs}
-        for bus in self.bevs:
-            SOCs2.append(self.optimization_model.SOC[self.current_timestep, bus].value)
-            #SOCs2[bus] = self.optimization_model.SOC[self.current_timestep+1, bus].value
 
         self._prepare_soc_lower_bounds()
         self._prepare_soc_upper_bounds()
 
-        for num, bev in enumerate(self.bevs.values()):
-            # an der ersten Stelle als lower und upper bound jetzt das Ergebnis
-            # schreiben
-            self.soc_lower_bounds[bev.home_bus][self.current_timestep] = SOCs2[num]
-            self.soc_upper_bounds[bev.home_bus][self.current_timestep] = SOCs2[num]
-
-
-        self._update_bev_socs(SOCs2)
-
-        #Is2 = []
-
-        #for bus in self.bevs:
-            #Is2.append(self.optimization_model.I[self.current_timestep + 1, bus].value)
-
-        #print('SOC:', self.soc_upper_bounds)
+        self._carry_over_last_socs()
+        #self._update_bev_socs(SOCs2)
 
         self._prepare_i_lower_bounds()
         self._prepare_i_upper_bounds()
@@ -442,9 +447,10 @@ class GridLineOptimizer:
 
         # Restriktionen festlegen
         def min_voltage_rule(model, t):
-            return model.u_trafo - sum(model.impedances[l] * (sum(model.household_currents[t, n] for n in model.buses if n >= l)
-                                                                  +sum(model.I[t, n] for n in model.charger_buses if n >= l))
-                                           for l in model.lines) >= model.u_min
+            hh_currs = lambda l: sum(model.household_currents[t, n] for n in model.buses if n >= l)
+            bev_currs = lambda l: sum(model.I[t, n] for n in model.charger_buses if n >= l)
+            return model.u_trafo - sum(model.impedances[l] * (hh_currs(l) + bev_currs(l))
+                                       for l in model.lines) >= model.u_min
 
 
         def calc_voltages_rule(model, t, n):
