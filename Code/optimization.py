@@ -350,6 +350,8 @@ class GridLineOptimizer:
             self.soc_lower_bounds[bus][self.current_timestep] = socs_to_carry_over[num]
             self.soc_upper_bounds[bus][self.current_timestep] = socs_to_carry_over[num]
 
+        self._update_bev_socs(socs_to_carry_over)
+
 
     def _prepare_next_timestep(self):
         self.current_timestep += 1
@@ -527,8 +529,8 @@ class GridLineOptimizer:
 
         def alt_equal_socs_rule(model, j, k):
             ft = self.current_timestep + self.horizon_width * 60 / self.resolution - 1
-            if j < np.max(model.charger_buses): #hier muss nicht die Länge, sondern das MAXIMUM in charger_buses verwendet werden!
-                if k > j:
+            if j < np.max(model.charger_buses) + 1: #hier muss nicht die Länge, sondern das MAXIMUM in charger_buses verwendet werden!
+                if j > k:#k > j: # stattdessen j > k ?
                     return (model.SOC[ft, j] - self.bevs[j].soc_start)/(self.bevs[j].soc_target-self.bevs[j].soc_start)\
                            -(model.SOC[ft, k] - self.bevs[k].soc_start)/(self.bevs[k].soc_target-self.bevs[k].soc_start)\
                            <= type(self)._OPTIONS['equal SOCs']
@@ -607,19 +609,20 @@ class GridLineOptimizer:
         model.keep_line_capacities = pe.Constraint(model.times*model.lines, rule=line_capacities_rule)
         model.track_socs = pe.Constraint(model.times*model.charger_buses, rule=track_socs_rule)
         # mit diesem Constraint kommt dasselbe raus, als hätte man nur track_socs aktiv
-        model.ensure_final_soc = pe.Constraint(model.charger_buses, rule=ensure_final_soc_rule)
+        #model.ensure_final_soc = pe.Constraint(model.charger_buses, rule=ensure_final_soc_rule)
         if type(self)._OPTIONS['distribute loadings'] == True:
             model.distribute_loading = pe.Constraint(model.times*model.charger_buses, rule=distribute_loading_rule)
         if type(self)._OPTIONS['fairness'] < 27:
             model.fair_charging = pe.Constraint(model.times*model.charger_buses, rule=fair_charging_rule)
         if type(self)._OPTIONS['equal SOCs'] < 1:
-            model.equal_socs = pe.Constraint(model.charger_buses, rule=equal_socs_rule)
+            model.equal_socs = pe.Constraint(model.charger_buses*model.charger_buses, rule=alt_equal_socs_rule)
+            model.equal_socs.pprint()
         if type(self)._OPTIONS['atillas constraint'] == True:
             model.atillas_constraint = pe.Constraint(model.times*model.charger_buses, rule=atillas_rule)
         if type(self)._OPTIONS['steady charging'][0] > 0:
             model.steady_charging = pe.Constraint(model.times, model.charger_buses, rule=steady_charging_rule)
         if type(self)._OPTIONS['equal products'] == True:
-            model.equal_products = pe.Constraint(model.buses, rule=equal_product_rule)
+            model.equal_products = pe.Constraint(model.charger_buses, rule=equal_product_rule)
 
         #return model
         self.optimization_model = model
@@ -1005,6 +1008,28 @@ class GridLineOptimizer:
 
             else:
                 plt.savefig('res_opt.pdf', bbox_inches='tight')
+
+
+    def get_socs_fullfillment(self, rolling, optimized):
+        if optimized:
+            if not rolling:
+                final_timestep = self.horizon_width * int(60 / self.resolution) - 1
+                final_socs = {bev: [(self.optimization_model.SOC[final_timestep, bev].value - self.bevs[bev].soc_start) / (self.bevs[bev].soc_target - self.bevs[bev].soc_start) * 100] for bev in self.bevs}
+                return final_socs
+
+            else:
+                pass
+
+        else:
+            final_timestep = self.horizon_width * int(60 / self.resolution) - 1
+            final_socs = {bev.home_bus: [(bev.current_soc - bev.soc_start) / (bev.soc_target - bev.soc_start) * 100] for bev in self.bevs.values()}
+            return final_socs
+
+
+    def export_socs_fullfillment(self, rolling=False, optimized=True):
+        final_socs = self.get_socs_fullfillment(rolling, optimized)
+        final_socs = pd.DataFrame(final_socs).T
+        final_socs.to_csv('socs_fullfillment.dat', sep='\\', index=False, header=False)
 
 
     def resample_data(func):

@@ -18,7 +18,7 @@ class BatteryElectricVehicle:
         self.t_target = int(t_target * 60 / self.resolution)
         self.t_start = int(t_start * 60/self.resolution)
         self.p_load = p_load
-        self.soc_list = [soc_start]
+        self.soc_list = []
         self.is_loading = True
         self.current_timestep = current_timestep
         self.recurring = recurring
@@ -29,7 +29,13 @@ class BatteryElectricVehicle:
 
 
     def update_soc(self, value):
+        """
+        updates the current_soc of the BEV with the value from the optimization
+        :param value: SOC
+        :return: None
+        """
         self.current_soc = value
+        self.soc_list.append(value)
         #print(f'SOC of BEV at node{self.home_bus} at timestep {self.current_timestep}: {self.current_soc} %')
 
 
