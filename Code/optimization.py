@@ -511,9 +511,17 @@ class GridLineOptimizer:
                 return pe.Constraint.Skip
 
 
-        def fair_charging_rule(model, t, b):
-            return model.I[t, b] - model.I[t, model.charger_buses.prevw(b)] <=\
-                   type(self)._OPTIONS['fairness']
+        def fair_charging_rule(model, t, b, pb):
+            if b < np.max(model.charger_buses) + 1:
+                if b > pb:
+                    return model.I[t, b] - model.I[t, pb] <=\
+                           type(self)._OPTIONS['fairness']
+
+                else:
+                    return pe.Constraint.Skip
+
+            else:
+                return pe.Constraint.Skip
 
 
         def equal_socs_rule(model, b):
@@ -613,7 +621,7 @@ class GridLineOptimizer:
         if type(self)._OPTIONS['distribute loadings'] == True:
             model.distribute_loading = pe.Constraint(model.times*model.charger_buses, rule=distribute_loading_rule)
         if type(self)._OPTIONS['fairness'] < 27:
-            model.fair_charging = pe.Constraint(model.times*model.charger_buses, rule=fair_charging_rule)
+            model.fair_charging = pe.Constraint(model.times*model.charger_buses*model.charger_buses, rule=fair_charging_rule)
         if type(self)._OPTIONS['equal SOCs'] < 1:
             model.equal_socs = pe.Constraint(model.charger_buses*model.charger_buses, rule=alt_equal_socs_rule)
             model.equal_socs.pprint()
