@@ -17,23 +17,23 @@ import matplotlib.pyplot as plt
 
 ROLLING = False#'experimental'
 
-resolution = 5
+resolution = 6
 buses = 6
-bevs = 6
+bevs = 5
 bev_lst = list(range(bevs))
 bus_lst = list(range(buses))
-p_trafo = 150  #kVA
+p_trafo = 30  #kVA
 
 # BEVs
-home_buses = [0, 1, 2, 3, 4, 5]#[1, 3]#[0, 1, 2, 3, 4, 5]
-start_socs = [20, 20, 30, 20, 25, 40]#[20, 50]#[20, 20, 30, 20, 25, 40]
-target_socs = [80, 70, 80, 90, 80, 70]#[100, 100]#[80, 70, 80, 90, 80, 70]
-target_times = [10, 16, 18, 18, 17, 20]#[20, 20]#[10, 16, 18, 18, 17, 20]
-start_times = [2, 2, 2, 2, 2, 2]#[15, 17]#[2, 2, 2, 2, 2, 2]
-bat_energies = [50, 50, 50, 50, 50, 50]#[50, 50]#[50, 50, 50, 50, 50, 50]
-p_loads = [11, 11, 11, 11, 11, 11]#[11, 11]#[11, 11, 11, 11, 11, 11]
+home_buses = [0, 1, 2, 3, 4]#[0, 1, 2, 3, 4, 5]
+start_socs = [20, 20, 20, 20, 20]#[20, 20, 30, 20, 25, 40]
+target_socs = [100, 100, 100, 100, 100]#[80, 70, 80, 90, 80, 70]
+target_times = [20, 20, 20, 20, 20]#[10, 16, 18, 18, 17, 20]
+start_times = [16, 16, 16, 16, 16]#[2, 2, 2, 2, 2, 2]
+bat_energies = [50, 50, 50, 50, 50]#[50, 50, 50, 50, 50, 50]
+p_loads = [11, 11, 11, 11, 11]#[11, 11, 11, 11, 11, 11]
 impedances = 2e-4
-lengths = [30, 20, 30, 30, 20, 20]
+lengths = [20, 20, 20, 20, 20, 20]
 
 
 # Households
@@ -52,15 +52,15 @@ for car in bev_lst:
 household_list = []
 for bus in bus_lst:
     household = HH(home_bus=bus, annual_demand=ann_dems[bus], resolution=resolution)
-    household.raise_demand(11, 19, 23800)
+    #household.raise_demand(11, 19, 23800)
     #household.raise_demand(15, 18, 1500)
     household_list.append(household)
 
-#GLO.set_options('distribute loadings', True)
 #GLO.set_options('log results', True)
 #GLO.set_options('distribute loadings', True)
-#GLO.set_options('fairness', 1)
-#GLO.set_options('equal SOCs', 0)
+GLO.set_options('fairness', 2)
+#GLO.set_options('equal SOCs', 0.1)
+#GLO.set_options('equal products', True)
 #GLO.set_options('atillas constraint', True)
 #GLO.set_options('steady charging', (3, 4))
 
@@ -84,6 +84,7 @@ if ROLLING == False:
     #test.export_grid()
     res_I = test.export_I_results()
     print(res_I)
+    test.export_socs_fullfillment()
 
 
 if ROLLING == True:
@@ -99,6 +100,9 @@ if ROLLING == True:
         plt.plot(range(len(test.results_I[i])), test.results_I[i], label=f'Current to BEV at node {i}')#, marker='o')
     plt.legend()
     plt.show()
+
+    for bev in bev_list:
+        print(f'Verlauf der SOCs des BEV an Knoten {bev.home_bus}', bev.soc_list, '\n')
 
 
 if ROLLING == 'experimental':
