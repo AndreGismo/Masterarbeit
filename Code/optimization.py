@@ -122,9 +122,9 @@ class GridLineOptimizer:
         self.voltages = self._make_voltages(voltages)
 
         self.u_trafo = 400
-        self.u_min = 0.9*self.u_trafo
+        self.u_min = 0.91 * self.u_trafo
         self.p_trafo = trafo_power
-        self.i_max = self.p_trafo*1000 / self.u_trafo
+        self.i_max = self.p_trafo * 1000 / self.u_trafo
 
         if type(self)._OPTIONS['consider linear']:
             self.solver = solver
@@ -711,7 +711,7 @@ class GridLineOptimizer:
         buses_df = pd.DataFrame(buses_dict)
 
         # write to excel file
-        with pd.ExcelWriter('grids/{}.xlsx'.format(filename)) as writer:
+        with pd.ExcelWriter('{}.xlsx'.format(filename)) as writer:
             lines_df.to_excel(writer, sheet_name='Lines', index=False)
             buses_df.to_excel(writer, sheet_name='Busses', index=False)
 

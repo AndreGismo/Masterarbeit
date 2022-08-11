@@ -8,118 +8,195 @@ V.1: jetzt kann unterschieden werden, ob man mit oder ohne rolling horizon optim
 
 V.2:
 """
+import random
 
 from optimization import GridLineOptimizer as GLO
 from battery_electric_vehicle import BatteryElectricVehicle as BEV
 from household import Household as HH
+from EMO import *
 
 import matplotlib.pyplot as plt
 
-ROLLING = False#'experimental'
+#ROLLING = False#'experimental'
+random_wishes = True
+use_emo = True # run EMO simulation to verify the optimization results
+emo_unoptimized = False # run EMO sinulation without optimization (BEVs charge according to P(SOC) curve) but P(U) controling
+emo_uncontrolled = False # run EMO simulation without optimization and without controlling
 
-resolution = 6
-buses = 6
-bevs = 5
-bev_lst = list(range(bevs))
-bus_lst = list(range(buses))
-p_trafo = 30  #kVA
+#========================================================
+# define scenario
+#========================================================
 
-# BEVs
-home_buses = [0, 1, 2, 3, 4]#[0, 1, 2, 3, 4, 5]
-start_socs = [20, 20, 20, 20, 20]#[20, 20, 30, 20, 25, 40]
-target_socs = [100, 100, 100, 100, 100]#[80, 70, 80, 90, 80, 70]
-target_times = [20, 20, 20, 20, 20]#[10, 16, 18, 18, 17, 20]
-start_times = [16, 16, 16, 16, 16]#[2, 2, 2, 2, 2, 2]
-bat_energies = [50, 50, 50, 50, 50]#[50, 50, 50, 50, 50, 50]
-p_loads = [11, 11, 11, 11, 11]#[11, 11, 11, 11, 11, 11]
-impedances = 2e-4
-lengths = [20, 20, 20, 20, 20, 20]
+seed = 5 # for creating reproducible "random" numbers
+resolution = 6 # resolution in minutes
+horizon = 24 # time horizon [h]
+buses = 40 # buses on the grid line (excluding trafo lv and mv and slack)
+bevs = 40 # buses with charging station (makes no sense to choose greater than buses)
+p_trafo = 250  # power of transformer [kVA]
+bev_lst = list(range(bevs)) # for iterating purposes
+bus_lst = list(range(buses)) # for iterating purposes
+
+#==== if random generated wishes, these are the characteristics of the random distribution
+# you need to take care that these make sense (e.g. target soc is greater than start soc)
+# as software won't raise exception =========================================================
+# soc [%]
+start_socs_mean = 10
+start_socs_deviation_plus = 0
+start_socs_deviation_minus = 0
+
+target_socs_mean = 100
+target_socs_deviation_plus = 0
+target_socs_deviation_minus = 0
+
+# time [h]
+start_times_mean = 10
+start_times_deviation_plus = 2
+start_times_deviation_minus = 2
+
+target_times_mean = 19
+target_times_deviation_plus = 4
+target_times_deviation_minus = 4
 
 
-# Households
+#==== BEVs customer wishes ==============================================================================
+if random_wishes:
+    random.seed(seed)
+    home_buses = [i for i in range(bevs)]
+    start_socs = [start_socs_mean + random.randint(-1 * start_socs_deviation_minus, start_socs_deviation_plus) for _ in range(bevs)]
+    target_socs = [target_socs_mean + random.randint(-1 * target_socs_deviation_minus, target_socs_deviation_plus) for _ in range(bevs)]
+    target_times = [target_times_mean + random.randint(-1 * target_times_deviation_minus, target_times_deviation_plus) for _ in range(bevs)]
+    start_times = [start_times_mean + random.randint(-1 * start_times_deviation_minus, start_times_deviation_plus) for _ in range(bevs)]
+    bat_energies = [50 for _ in range(bevs)]
+
+else: # create them on your own (length of list must equal bevs)
+    home_buses = [0, 1, 2, 3, 4]
+    start_socs = [20, 20, 20, 20, 20]
+    target_socs = [100, 100, 100, 100, 100]
+    target_times = [20, 20, 20, 20, 20]
+    start_times = [16, 16, 16, 16, 16]
+    bat_energies = [50, 50, 50, 50, 50]
+
+
+#==== Households annual demand [kWh] ====================================================================
 ann_dems = [3500 for _ in range(buses)]
 
-# BEVs erzeugen
+#===========================================================================
+# create objects for optimization
+#===========================================================================
+
+#==== create the BEV instances ==============================================================
 bev_list = []
 for car in bev_lst:
     bev = BEV(soc_start=start_socs[car], soc_target=target_socs[car],
               t_target=target_times[car], e_bat=bat_energies[car],
               resolution=resolution, home_bus=home_buses[car],
-              t_start=start_times[car], p_load=p_loads[car])
+              t_start=start_times[car])
     bev_list.append(bev)
 
-# Households erzeugen
+#==== create the Households instances =======================================================
 household_list = []
 for bus in bus_lst:
     household = HH(home_bus=bus, annual_demand=ann_dems[bus], resolution=resolution)
-    #household.raise_demand(11, 19, 23800)
-    #household.raise_demand(15, 18, 1500)
+    #household.raise_demand(11, 19, 23800) # raise demand to simulate additional electric loads if you like
     household_list.append(household)
 
+#==== choose additional setup for optimizer =================================================
 #GLO.set_options('log results', True)
-#GLO.set_options('distribute loadings', True)
-GLO.set_options('fairness', 2)
+#GLO.set_options('fairness', 2)
 #GLO.set_options('equal SOCs', 0.1)
 #GLO.set_options('equal products', True)
 #GLO.set_options('atillas constraint', True)
-#GLO.set_options('steady charging', (3, 4))
 
+#==== create optimizer instance =============================================================
 test = GLO(number_buses=buses, bevs=bev_list, resolution=resolution, trafo_power=p_trafo,
-           households=household_list, horizon_width=24, line_impedances=impedances,
-           line_lengths=lengths)
+           households=household_list, horizon_width=horizon)
 
-#test.optimization_model.equal_socs.pprint()
-#test.display_keep_line_capacities_constraint()
-#test.optimization_model.keep_line_capacities.pprint()
-#test.optimization_model.steady_charging.pprint()
+#============================================================================================
+# run the actual optimization
+#============================================================================================
+
+#==== standalone optimization ==============================================================
+
+test.run_optimization_single_timestep(tee=True)
+test.optimization_model.SOC.pprint()
+test.plot_all_results(marker=None, save=False, usetex=True, compact_x=True)
+#test.plot_I_results(marker=None, save=True, usetex=True, compact_x=True)
+#test.plot_SOC_results(marker=None, save=True, usetex=True, compact_x=True)
+test.export_socs_fullfillment()
+
+if use_emo:
+#==== optimization + validation of results by using emo simulation: first prepare the data
+# of the optimizer to be communicated to the emo-objects =====================================
+    grid_excel_file = 'optimized_grid'
+    test.export_grid(grid_excel_file)
+    grid_specs = test.get_grid_specs()
+    hh_data = test.export_household_profiles()
+    wb_data = test.export_I_results()
+
+#==== create the emo grid object and pass it the data of the grid that was used by the optimizer
+    system_1 = Low_Voltage_System(line_type='NAYY 4x120 SE', transformer_type="0.25 MVA 10/0.4 kV")
+    system_1.grid_from_GLO('optimized_grid.xlsx', grid_specs)
+
+    sim_handler_1 = Simulation_Handler(system_1, start_minute=60 * 12, end_minute=60 * 12 + 24 * 60, rapid=False)
+
+#==== start the emo net simulation =============================================================
+    if not emo_unoptimized:
+        sim_handler_1.run_GLO_sim(hh_data, wb_data, int(horizon * 60 / resolution), parallel=False)
+
+    else:
+        if not emo_uncontrolled:
+            sim_handler_1.run_unoptimized_sim(hh_data, bev_list, int(horizon * 60 / resolution), control=True)
+            test.export_socs_fullfillment(optimized=False)
+
+        else:
+            sim_handler_1.run_unoptimized_sim(hh_data, bev_list, int(24 * 60 / resolution), control=False)
+            test.export_socs_fullfillment(optimized=False)
+
+#==== Visualize the simulation results ==============================================
+    sim_handler_1.plot_EMO_sim_results(freq=resolution, element='buses', legend=False, marker=None,
+                                       save=True, usetex=True, compact_x=True)
+    sim_handler_1.plot_EMO_sim_results(freq=resolution, element='lines', legend=False, marker=None,
+                                       save=True, usetex=True, compact_x=True)
+    sim_handler_1.plot_EMO_sim_results(freq=resolution, element='trafo', legend=False, marker=None,
+                                       save=True, usetex=True, compact_x=True)
+
+    sim_handler_1.export_sim_results('trafo', res_min=resolution)
+    sim_handler_1.export_sim_results('buses', res_min=resolution)
 
 
-# optimieren lassen
-if ROLLING == False:
-    test.run_optimization_single_timestep(tee=True)
-    test.optimization_model.SOC.pprint()
-    test.plot_all_results(marker=None, save=False, usetex=True, compact_x=True)
-    #test.plot_I_results(marker=None, save=True, usetex=True, compact_x=True)
-    #test.plot_SOC_results(marker=None, save=True, usetex=True, compact_x=True)
-    #test.export_grid()
-    res_I = test.export_I_results()
-    print(res_I)
-    test.export_socs_fullfillment()
-
-
-if ROLLING == True:
-    test.run_optimization_rolling_horizon(24, tee=False)
-    for key in test.results_I:
-        print(test.results_I[key])
-
-    for i in home_buses:#range(len(bev_lst)):
-        plt.plot(range(len(test.results_I[i])), test.results_SOC[i])#, marker='o')
-    plt.show()
-
-    for i in home_buses:#range(len(bev_lst)):
-        plt.plot(range(len(test.results_I[i])), test.results_I[i], label=f'Current to BEV at node {i}')#, marker='o')
-    plt.legend()
-    plt.show()
-
-    for bev in bev_list:
-        print(f'Verlauf der SOCs des BEV an Knoten {bev.home_bus}', bev.soc_list, '\n')
-
-
-if ROLLING == 'experimental':
-    res_ges = []
-    for t in range(int(24*60/resolution)):
-        print(t)
-        test.run_optimization_single_timestep(tee=False)
-        test._store_results()
-        res = test.export_I_results()
-        res_ges.append(res)
-        test._prepare_next_timestep()
-        test._setup_model()
-
-    for item in res_ges:
-        for key in item:
-            print(item[key])
-        print('############################################')
+# if ROLLING == True:
+#     test.run_optimization_rolling_horizon(24, tee=False)
+#     for key in test.results_I:
+#         print(test.results_I[key])
+#
+#     for i in home_buses:#range(len(bev_lst)):
+#         plt.plot(range(len(test.results_I[i])), test.results_SOC[i])#, marker='o')
+#     plt.show()
+#
+#     for i in home_buses:#range(len(bev_lst)):
+#         plt.plot(range(len(test.results_I[i])), test.results_I[i], label=f'Current to BEV at node {i}')#, marker='o')
+#     plt.legend()
+#     plt.show()
+#
+#     for bev in bev_list:
+#         print(f'Verlauf der SOCs des BEV an Knoten {bev.home_bus}', bev.soc_list, '\n')
+#
+#
+# if ROLLING == 'experimental':
+#     res_ges = []
+#     for t in range(int(24*60/resolution)):
+#         print(t)
+#         test.run_optimization_single_timestep(tee=False)
+#         test._store_results()
+#         res = test.export_I_results()
+#         res_ges.append(res)
+#         test._prepare_next_timestep()
+#         test._setup_model()
+#
+#     for item in res_ges:
+#         for key in item:
+#             print(item[key])
+#         print('############################################')
 
 
 
