@@ -32,7 +32,7 @@ if True:  # Import
     import copy
     import sys
     #sys.path.append('C:/Users/Hotz/Dropbox/Weitere/Programmierung')
-    import PSL
+    #import PSL
     from matplotlib import pyplot as plt
     import matplotlib.dates as mdates
     
