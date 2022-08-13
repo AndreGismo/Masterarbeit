@@ -16,11 +16,12 @@ from household import Household as HH
 from EMO import *
 
 import matplotlib.pyplot as plt
+import numpy as np
 
-ROLLING = True#'experimental'
-random_wishes = False
+ROLLING = False#'experimental'
+random_wishes = True
 use_emo = True # run EMO simulation to verify the optimization results
-emo_unoptimized = True # run EMO sinulation without optimization (BEVs charge according to P(SOC) curve) but P(U) controling
+emo_unoptimized = False # run EMO sinulation without optimization (BEVs charge according to P(SOC) curve) but P(U) controling
 emo_uncontrolled = False # run EMO simulation without optimization and without controlling
 
 #========================================================
@@ -30,9 +31,9 @@ emo_uncontrolled = False # run EMO simulation without optimization and without c
 seed = 5 # for creating reproducible "random" numbers
 resolution = 15 # resolution in minutes
 horizon = 24 # time horizon [h]
-buses = 6 # buses on the grid line (excluding trafo lv and mv and slack)
-bevs = 2 # buses with charging station (makes no sense to choose greater than buses)
-p_trafo = 15  # power of transformer [kVA]
+buses = 30 # buses on the grid line (excluding trafo lv and mv and slack)
+bevs = 10 # buses with charging station (makes no sense to choose greater than buses)
+p_trafo = 180  # power of transformer [kVA]
 bev_lst = list(range(bevs)) # for iterating purposes
 bus_lst = list(range(buses)) # for iterating purposes
 
@@ -61,7 +62,8 @@ target_times_deviation_minus = 4
 #==== BEVs customer wishes ==============================================================================
 if random_wishes:
     random.seed(seed)
-    home_buses = [i for i in range(bevs)]
+    np.random.seed(seed)
+    home_buses = np.random.choice([i for i in range(buses)], size=bevs, replace=False)
     start_socs = [start_socs_mean + random.randint(-1 * start_socs_deviation_minus, start_socs_deviation_plus) for _ in range(bevs)]
     target_socs = [target_socs_mean + random.randint(-1 * target_socs_deviation_minus, target_socs_deviation_plus) for _ in range(bevs)]
     target_times = [target_times_mean + random.randint(-1 * target_times_deviation_minus, target_times_deviation_plus) for _ in range(bevs)]
