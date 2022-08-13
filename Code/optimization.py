@@ -112,6 +112,7 @@ class GridLineOptimizer:
     def __init__(self, number_buses, bevs, households, trafo_power, resolution, horizon_width=24,
                  voltages=None, line_impedances=None, line_lengths=None, line_capacities=None,
                  solver='glpk'):
+        self.rolling = False
         self.current_timestep = 0
         self.resolution = resolution
         self.horizon_width = horizon_width
@@ -354,6 +355,9 @@ class GridLineOptimizer:
 
 
     def _prepare_next_timestep(self):
+        if not self.rolling:
+            self.rolling = True
+
         self.current_timestep += 1
         self._make_times()
 
@@ -959,35 +963,14 @@ class GridLineOptimizer:
             plt.rcParams['legend.fontsize'] = 8
             plt.rcParams['font.size'] = 10.95
 
-        if compact_x:
-            x_fmt = mdates.DateFormatter('%H')
+        # if compact_x:
+        #     x_fmt = mdates.DateFormatter('%H')
 
         if not _pandas_available or not _matplotlib_available:
             print('\nWARNING: unable to plot results\n')
 
         else:
-            # erstmal die ergebnisse aus dem Modell abfragen
-            SOCs = {bus: [] for bus in self.bevs}
-            for time in self.times:
-                for bus in self.bevs:
-                    SOCs[bus].append(self.optimization_model.SOC[time, bus].value)
-
-            Is = {bus: [] for bus in self.bevs}
-            for time in self.times:
-                for bus in self.bevs:
-                    Is[bus].append(self.optimization_model.I[time, bus].value)
-
-            SOCs_df = pd.DataFrame(SOCs)
-            if export_data:
-                SOCs_df.index = np.linspace(0, self.horizon_width, self.horizon_width*int(60/self.resolution))
-                SOCs_df.to_csv('SOCs.dat', sep='\t')
-            SOCs_df.index = pd.date_range(start='2021', periods=len(SOCs_df), freq=str(self.resolution)+'min')
-            Is_df = pd.DataFrame(Is)
-            if export_data:
-                Is_df.index = np.linspace(0, self.horizon_width, self.horizon_width * int(60 / self.resolution))
-                Is_df.to_csv('Is.dat', sep='\t')
-            Is_df.index = pd.date_range(start='2021', periods=len(SOCs_df), freq=str(self.resolution) + 'min')
-
+            Is_df, SOCs_df = self._gather_data_for_plotting()
             fig, ax = plt.subplots(2, 1, figsize=(6.3, 4), sharex=True)
             for column in SOCs_df.columns:
                 ax[0].plot(SOCs_df.index, SOCs_df[column], marker=kwargs['marker'], label=f'Knoten {column+1}')
@@ -1008,9 +991,17 @@ class GridLineOptimizer:
             ax[1].set_ylabel('Strom [A]')
             ax[1].set_xlabel('Time [mm-dd hh]', fontsize=11)
             if compact_x:
+                x_fmt = mdates.DateFormatter('%H')
                 ax[1].xaxis.set_major_formatter(x_fmt)
                 ax[1].set_xlabel('Zeit [hh]')
             #ax[1].set_title('Current over time - results of optimization', fontsize=20)
+
+            if export_data:
+                SOCs_df.index = np.linspace(0, self.horizon_width, self.horizon_width * int(60 / self.resolution))
+                SOCs_df.to_csv('SOCs.dat', sep='\t')
+                Is_df.index = np.linspace(0, self.horizon_width, self.horizon_width * int(60 / self.resolution))
+                Is_df.to_csv('Is.dat', sep='\t')
+
             if not save:
                 plt.show()
 
@@ -1018,18 +1009,41 @@ class GridLineOptimizer:
                 plt.savefig('res_opt.pdf', bbox_inches='tight')
 
 
+    def _gather_data_for_plotting(self):
+        if not self.rolling:
+            # if there was no rolling horizon, get results out of optimization model
+            SOCs = {bus: [self.optimization_model.SOC[time, bus].value for time in self.times] for bus in self.bevs}
+            Is = {bus: [self.optimization_model.I[time, bus].value for time in self.times] for bus in self.bevs}
+
+            SOCs_df = pd.DataFrame(SOCs)
+            Is_df = pd.DataFrame(Is)
+            SOCs_df.index = pd.date_range(start='2021', periods=len(SOCs_df), freq=str(self.resolution) + 'min')
+            Is_df.index = pd.date_range(start='2021', periods=len(Is_df), freq=str(self.resolution) + 'min')
+
+        else:
+            # if there was the rolling horizon, get the data out of self.results_...
+            SOCs_df = pd.DataFrame(self.results_SOC)
+            Is_df = pd.DataFrame(self.results_I)
+            SOCs_df.index = pd.date_range(start='2021', periods=len(SOCs_df), freq=str(self.resolution) + 'min')
+            Is_df.index = pd.date_range(start='2021', periods=len(Is_df), freq=str(self.resolution) + 'min')
+
+        return Is_df, SOCs_df
+
+
     def get_socs_fullfillment(self, rolling, optimized):
+        final_timestep = self.horizon_width * int(60 / self.resolution) - 1
         if optimized:
             if not rolling:
-                final_timestep = self.horizon_width * int(60 / self.resolution) - 1
+                #final_timestep = self.horizon_width * int(60 / self.resolution) - 1
                 final_socs = {bev: [(self.optimization_model.SOC[final_timestep, bev].value - self.bevs[bev].soc_start) / (self.bevs[bev].soc_target - self.bevs[bev].soc_start) * 100] for bev in self.bevs}
                 return final_socs
 
             else:
-                pass
+                final_socs = {bev.home_bus: [(bev.current_soc - bev.soc_start) / (bev.soc_target - bev.soc_start) * 100] for bev in self.bevs.values()}
+                return final_socs
 
         else:
-            final_timestep = self.horizon_width * int(60 / self.resolution) - 1
+            #final_timestep = self.horizon_width * int(60 / self.resolution) - 1
             final_socs = {bev.home_bus: [(bev.current_soc - bev.soc_start) / (bev.soc_target - bev.soc_start) * 100] for bev in self.bevs.values()}
             return final_socs
 

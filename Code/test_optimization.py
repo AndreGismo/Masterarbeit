@@ -17,9 +17,9 @@ from EMO import *
 
 import matplotlib.pyplot as plt
 
-#ROLLING = False#'experimental'
-random_wishes = True
-use_emo = True # run EMO simulation to verify the optimization results
+ROLLING = True#'experimental'
+random_wishes = False
+use_emo = False # run EMO simulation to verify the optimization results
 emo_unoptimized = False # run EMO sinulation without optimization (BEVs charge according to P(SOC) curve) but P(U) controling
 emo_uncontrolled = False # run EMO simulation without optimization and without controlling
 
@@ -28,11 +28,11 @@ emo_uncontrolled = False # run EMO simulation without optimization and without c
 #========================================================
 
 seed = 5 # for creating reproducible "random" numbers
-resolution = 6 # resolution in minutes
+resolution = 15 # resolution in minutes
 horizon = 24 # time horizon [h]
-buses = 40 # buses on the grid line (excluding trafo lv and mv and slack)
-bevs = 40 # buses with charging station (makes no sense to choose greater than buses)
-p_trafo = 250  # power of transformer [kVA]
+buses = 6 # buses on the grid line (excluding trafo lv and mv and slack)
+bevs = 2 # buses with charging station (makes no sense to choose greater than buses)
+p_trafo = 15  # power of transformer [kVA]
 bev_lst = list(range(bevs)) # for iterating purposes
 bus_lst = list(range(buses)) # for iterating purposes
 
@@ -69,12 +69,12 @@ if random_wishes:
     bat_energies = [50 for _ in range(bevs)]
 
 else: # create them on your own (length of list must equal bevs)
-    home_buses = [0, 1, 2, 3, 4]
-    start_socs = [20, 20, 20, 20, 20]
-    target_socs = [100, 100, 100, 100, 100]
-    target_times = [20, 20, 20, 20, 20]
-    start_times = [16, 16, 16, 16, 16]
-    bat_energies = [50, 50, 50, 50, 50]
+    home_buses = [0, 5]
+    start_socs = [50, 20]
+    target_socs = [100, 100]
+    target_times = [20, 20]
+    start_times = [16, 16]
+    bat_energies = [50, 50]
 
 
 #==== Households annual demand [kWh] ====================================================================
@@ -116,15 +116,20 @@ test = GLO(number_buses=buses, bevs=bev_list, resolution=resolution, trafo_power
 #============================================================================================
 
 #==== standalone optimization ==============================================================
+if not ROLLING:
+    test.run_optimization_single_timestep(tee=True)
+    test.optimization_model.SOC.pprint()
+    test.plot_all_results(marker=None, save=False, usetex=True, compact_x=True, export_data=True)
+    #test.plot_I_results(marker=None, save=True, usetex=True, compact_x=True)
+    #test.plot_SOC_results(marker=None, save=True, usetex=True, compact_x=True)
+    test.export_socs_fullfillment()
 
-test.run_optimization_single_timestep(tee=True)
-test.optimization_model.SOC.pprint()
-test.plot_all_results(marker=None, save=False, usetex=True, compact_x=True)
-#test.plot_I_results(marker=None, save=True, usetex=True, compact_x=True)
-#test.plot_SOC_results(marker=None, save=True, usetex=True, compact_x=True)
-test.export_socs_fullfillment()
+else:
+    test.run_optimization_rolling_horizon(tee=False, complete_horizon=24)
+    test.plot_all_results(marker=None, save=False, usetex=True, compact_x=True, export_data=True)
+    test.export_socs_fullfillment(rolling=True)
 
-if use_emo:
+if use_emo: # falls Rolling, dann sind ja schon die SOCs der BEVs angepasst woreden => müssen wieder auf SOC_start gesetzt werden
 #==== optimization + validation of results by using emo simulation: first prepare the data
 # of the optimizer to be communicated to the emo-objects =====================================
     grid_excel_file = 'optimized_grid'
