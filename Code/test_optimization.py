@@ -19,8 +19,8 @@ import matplotlib.pyplot as plt
 
 ROLLING = True#'experimental'
 random_wishes = False
-use_emo = False # run EMO simulation to verify the optimization results
-emo_unoptimized = False # run EMO sinulation without optimization (BEVs charge according to P(SOC) curve) but P(U) controling
+use_emo = True # run EMO simulation to verify the optimization results
+emo_unoptimized = True # run EMO sinulation without optimization (BEVs charge according to P(SOC) curve) but P(U) controling
 emo_uncontrolled = False # run EMO simulation without optimization and without controlling
 
 #========================================================
@@ -125,7 +125,7 @@ if not ROLLING:
     test.export_socs_fullfillment()
 
 else:
-    test.run_optimization_rolling_horizon(tee=False, complete_horizon=24)
+    test.run_optimization_rolling_horizon(tee=False, complete_horizon=24, update_bevs=False)
     test.plot_all_results(marker=None, save=False, usetex=True, compact_x=True, export_data=True)
     test.export_socs_fullfillment(rolling=True)
 

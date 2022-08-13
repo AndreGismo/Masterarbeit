@@ -331,7 +331,7 @@ class GridLineOptimizer:
         return {num: self.line_lengths[num]*impedance for num, impedance in enumerate(self.impedances.values())}
 
 
-    def _carry_over_last_socs(self):
+    def _carry_over_last_socs(self, update_bevs):
         """
         after each run of the optimizer, fetch the results from the optimization
         model (the socs of the second timestep in the current horizon) and use
@@ -351,10 +351,11 @@ class GridLineOptimizer:
             self.soc_lower_bounds[bus][self.current_timestep] = socs_to_carry_over[num]
             self.soc_upper_bounds[bus][self.current_timestep] = socs_to_carry_over[num]
 
-        self._update_bev_socs(socs_to_carry_over)
+        if update_bevs:
+            self._update_bev_socs(socs_to_carry_over)
 
 
-    def _prepare_next_timestep(self):
+    def _prepare_next_timestep(self, update_bevs):
         if not self.rolling:
             self.rolling = True
 
@@ -364,7 +365,7 @@ class GridLineOptimizer:
         self._prepare_soc_lower_bounds()
         self._prepare_soc_upper_bounds()
 
-        self._carry_over_last_socs()
+        self._carry_over_last_socs(update_bevs)
         #self._update_bev_socs(SOCs2)
 
         self._prepare_i_lower_bounds()
@@ -726,9 +727,13 @@ class GridLineOptimizer:
 
 
     def export_I_results(self):
-        num_timesteps = int(self.horizon_width * 60 / self.resolution)
-        return {bev: [self.optimization_model.I[t, bev].value for t in self.times]
-                for bev in self.bevs.keys()}
+        #num_timesteps = int(self.horizon_width * 60 / self.resolution)
+        if not self.rolling:
+            return {bev: [self.optimization_model.I[t, bev].value for t in self.times]
+                    for bev in self.bevs.keys()}
+
+        else:
+            return self.results_I
 
 
     def get_grid_specs(self):
@@ -819,13 +824,13 @@ class GridLineOptimizer:
             self.log_results()
 
 
-    def run_optimization_rolling_horizon(self, complete_horizon, **kwargs):
+    def run_optimization_rolling_horizon(self, complete_horizon, update_bevs=False, **kwargs):
         steps = int(complete_horizon * 60/self.resolution)
         for i in range(steps):
             print(i)
             self.run_optimization_single_timestep(tee=kwargs['tee'])
             self._store_results()
-            self._prepare_next_timestep()
+            self._prepare_next_timestep(update_bevs)#=kwargs['update_bevs'])
             self._setup_model()
 
 
