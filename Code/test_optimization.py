@@ -18,11 +18,17 @@ from EMO import *
 import matplotlib.pyplot as plt
 import numpy as np
 
-ROLLING = False#'experimental'
+ROLLING = False
 random_wishes = True
 use_emo = True # run EMO simulation to verify the optimization results
-emo_unoptimized = False # run EMO sinulation without optimization (BEVs charge according to P(SOC) curve) but P(U) controling
-emo_uncontrolled = False # run EMO simulation without optimization and without controlling
+emo_unoptimized = True # run EMO sinulation without optimization (BEVs charge according to P(SOC) curve) but P(U) controling
+emo_uncontrolled = True # run EMO simulation without optimization and without controlling
+
+update_bevs = True
+
+if use_emo and (emo_unoptimized or emo_uncontrolled):
+    update_bevs = False
+    print('rolling darf bevs nicht updaten')
 
 #========================================================
 # define scenario
@@ -31,9 +37,9 @@ emo_uncontrolled = False # run EMO simulation without optimization and without c
 seed = 5 # for creating reproducible "random" numbers
 resolution = 15 # resolution in minutes
 horizon = 24 # time horizon [h]
-buses = 30 # buses on the grid line (excluding trafo lv and mv and slack)
-bevs = 10 # buses with charging station (makes no sense to choose greater than buses)
-p_trafo = 180  # power of transformer [kVA]
+buses = 40 # buses on the grid line (excluding trafo lv and mv and slack)
+bevs = 40 # buses with charging station (makes no sense to choose greater than buses)
+p_trafo = 250  # power of transformer [kVA]
 bev_lst = list(range(bevs)) # for iterating purposes
 bus_lst = list(range(buses)) # for iterating purposes
 
@@ -127,9 +133,9 @@ if not ROLLING:
     test.export_socs_fullfillment()
 
 else:
-    test.run_optimization_rolling_horizon(tee=False, complete_horizon=24, update_bevs=False)
+    test.run_optimization_rolling_horizon(tee=False, complete_horizon=24, update_bevs=update_bevs)
     test.plot_all_results(marker=None, save=False, usetex=True, compact_x=True, export_data=True)
-    test.export_socs_fullfillment(rolling=True)
+    test.export_socs_fullfillment()
 
 if use_emo: # falls Rolling, dann sind ja schon die SOCs der BEVs angepasst woreden => müssen wieder auf SOC_start gesetzt werden
 #==== optimization + validation of results by using emo simulation: first prepare the data
@@ -149,15 +155,18 @@ if use_emo: # falls Rolling, dann sind ja schon die SOCs der BEVs angepasst wore
 #==== start the emo net simulation =============================================================
     if not emo_unoptimized:
         sim_handler_1.run_GLO_sim(hh_data, wb_data, int(horizon * 60 / resolution), parallel=False)
+        print('Starte Netzsimulation mit Optimierungsergebnissen')
 
     else:
         if not emo_uncontrolled:
             sim_handler_1.run_unoptimized_sim(hh_data, bev_list, int(horizon * 60 / resolution), control=True)
             test.export_socs_fullfillment(optimized=False)
+            print('Starte Netzsimulation ohne Optimierungsergebnissen, nutze P(U)-Regelung')
 
         else:
             sim_handler_1.run_unoptimized_sim(hh_data, bev_list, int(24 * 60 / resolution), control=False)
             test.export_socs_fullfillment(optimized=False)
+            print('Starte Netzsimulation ohne Optimierungsergebnissen, freies Laden')
 
 #==== Visualize the simulation results ==============================================
     sim_handler_1.plot_EMO_sim_results(freq=resolution, element='buses', legend=False, marker=None,

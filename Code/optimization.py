@@ -1035,11 +1035,10 @@ class GridLineOptimizer:
         return Is_df, SOCs_df
 
 
-    def get_socs_fullfillment(self, rolling, optimized):
+    def get_socs_fullfillment(self, optimized):
         final_timestep = self.horizon_width * int(60 / self.resolution) - 1
         if optimized:
-            if not rolling:
-                #final_timestep = self.horizon_width * int(60 / self.resolution) - 1
+            if not self.rolling:
                 final_socs = {bev: [(self.optimization_model.SOC[final_timestep, bev].value - self.bevs[bev].soc_start) / (self.bevs[bev].soc_target - self.bevs[bev].soc_start) * 100] for bev in self.bevs}
                 return final_socs
 
@@ -1048,13 +1047,12 @@ class GridLineOptimizer:
                 return final_socs
 
         else:
-            #final_timestep = self.horizon_width * int(60 / self.resolution) - 1
             final_socs = {bev.home_bus: [(bev.current_soc - bev.soc_start) / (bev.soc_target - bev.soc_start) * 100] for bev in self.bevs.values()}
             return final_socs
 
 
-    def export_socs_fullfillment(self, rolling=False, optimized=True):
-        final_socs = self.get_socs_fullfillment(rolling, optimized)
+    def export_socs_fullfillment(self, optimized=True):
+        final_socs = self.get_socs_fullfillment(optimized)
         final_socs = pd.DataFrame(final_socs).T
         final_socs.to_csv('socs_fullfillment.dat', sep='\\', index=False, header=False)
 
