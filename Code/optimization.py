@@ -1099,6 +1099,11 @@ class GridLineOptimizer:
                     for bus in self.optimization_model.charger_buses}
 
 
+    def export_current_I_results(self):
+        ts = self.current_timestep
+        return {node: self.optimization_model.I[ts, node].value for node in self.bevs}
+
+
     @classmethod
     def set_options(cls, key, value):
         cls._OPTIONS[key] = value
