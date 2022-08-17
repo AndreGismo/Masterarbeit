@@ -1035,7 +1035,7 @@ class GridLineOptimizer:
         return Is_df, SOCs_df
 
 
-    def get_socs_fullfillment(self, optimized):
+    def _get_socs_fullfillment(self, optimized):
         final_timestep = self.horizon_width * int(60 / self.resolution) - 1
         if optimized:
             if not self.rolling:
@@ -1052,7 +1052,7 @@ class GridLineOptimizer:
 
 
     def export_socs_fullfillment(self, optimized=True):
-        final_socs = self.get_socs_fullfillment(optimized)
+        final_socs = self._get_socs_fullfillment(optimized)
         final_socs = pd.DataFrame(final_socs).T
         final_socs.to_csv('socs_fullfillment.dat', sep='\\', index=False, header=False)
 
