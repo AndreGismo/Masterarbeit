@@ -463,8 +463,8 @@ class Simulation_Handler():
 
 
 
-    @get_results
-    def run_GLO_sim(self, household_data, wallbox_data, timesteps, parallel):
+    #@get_results
+    def run_GLO_sim(self, household_data, wallbox_data, parallel):#, timesteps, parallel):
         """ By André
         runs a simulation according to the data and grid the GLO was optimizing for
         and stores results (line loading, bus voltage, transformer loading) as an
@@ -500,6 +500,11 @@ class Simulation_Handler():
                     self.res_GLO_sim['buses'][bus_nr].append(self.system.grid.res_bus.loc[bus_nr, 'vm_pu']*400)
 
             self.res_GLO_sim['trafo'].append(self.system.grid.res_trafo.loc[0, 'loading_percent'])
+
+            if parallel:
+                # get the results from self.res_GLO_sim[<element>] and append them to
+                # self.res_GLO_sim_<element>, so they dont get lost between multiple calls
+                self.get_first_results()
 
 
     def run_unoptimized_sim(self, household_data, bevs, timesteps, control=False):

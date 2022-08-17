@@ -61,7 +61,7 @@ class BatteryElectricVehicle:
         self.current_soc += (power * self.resolution/60)/self.e_bat*100
         if self.current_soc > 100:
             self.current_soc = 100
-        print(f'current soc of BEV at node {self.home_bus}: {self.current_soc}')
+        #print(f'current soc of BEV at node {self.home_bus}: {self.current_soc}')
 
 
     def calc_p_load(self):

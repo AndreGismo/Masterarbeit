@@ -1099,9 +1099,9 @@ class GridLineOptimizer:
                     for bus in self.optimization_model.charger_buses}
 
 
-    def export_current_I_results(self):
+    def export_current_I_results(self, width):
         ts = self.current_timestep
-        return {node: self.optimization_model.I[ts, node].value for node in self.bevs}
+        return {node: [self.optimization_model.I[time, node].value for time in range(ts, ts+width)] for node in self.bevs}
 
 
     @classmethod

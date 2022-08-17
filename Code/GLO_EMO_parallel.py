@@ -86,7 +86,7 @@ def func_opt(tee, marker, queue):
     for t in range(t_steps):
         print('optimization round', t, 'running in process', pid)
         test.run_optimization_single_timestep(tee=tee)
-        I_res = test.export_I_results()
+        I_res = test.export_current_I_results(1)
         #print(I_res)
         queue.put(I_res) # vielleicht ohne block?
         test._store_results()
@@ -132,7 +132,7 @@ def func_sim(queue):
             break
 
         # run simulation with only the results for the first timestep
-        sim_handler_1.run_GLO_sim(hh_data, res_I, timesteps=2, parallel=True)
+        sim_handler_1.run_GLO_sim(hh_data, res_I, parallel=True)#, timesteps=1, parallel=True)# timesteps=2
         time.sleep(0.5)
         #sim_handler_1.plot_EMO_sim_results(resolution, element='buses')
         #sim_handler_1.plot_EMO_sim_results(freq=resolution, element='lines')
