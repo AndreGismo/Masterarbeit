@@ -453,13 +453,13 @@ class Simulation_Handler():
         for line in self.res_GLO_sim['lines']:
             #print(self.res_GLO_sim['lines'])
             #print(line)
-            self.res_GLO_sim_I[line+2].append(self.res_GLO_sim['lines'][line][1])
+            self.res_GLO_sim_I[line+2].append(self.res_GLO_sim['lines'][line][0])
 
         for bus in self.res_GLO_sim['buses']:
             #print(self.res_GLO_sim['buses'])
-            self.res_GLO_sim_U[bus-2].append(self.res_GLO_sim['buses'][bus][1])
+            self.res_GLO_sim_U[bus-2].append(self.res_GLO_sim['buses'][bus][0])
 
-        self.res_GLO_sim_trafo.append(self.res_GLO_sim['trafo'][1])
+        self.res_GLO_sim_trafo.append(self.res_GLO_sim['trafo'][0])
 
 
 
@@ -478,7 +478,8 @@ class Simulation_Handler():
                             'lines': {i: [] for i in self.system.grid.line.index},
                             'trafo': []}
 
-        for step in range(timesteps):
+        for step in range(len(next(iter(wallbox_data.values())))):
+            print('step: ', step)
             # set household loads
             for bus in self.system.grid.load.index:
                 self.system.grid.load.loc[bus, 'p_mw'] = household_data[bus][step] * 1e-6
