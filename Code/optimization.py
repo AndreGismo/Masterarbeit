@@ -543,10 +543,10 @@ class GridLineOptimizer:
         def alt_equal_socs_rule(model, j, k):
             ft = self.current_timestep + self.horizon_width * 60 / self.resolution - 1
             if j < np.max(model.charger_buses) + 1: #hier muss nicht die Länge, sondern das MAXIMUM in charger_buses verwendet werden!
-                if j > k:#k > j: # stattdessen j > k ?
-                    return (model.SOC[ft, j] - self.bevs[j].soc_start)/(self.bevs[j].soc_target-self.bevs[j].soc_start)\
-                           -(model.SOC[ft, k] - self.bevs[k].soc_start)/(self.bevs[k].soc_target-self.bevs[k].soc_start)\
-                           <= type(self)._OPTIONS['equal SOCs']
+                if j > k:
+                    fullfillment_j = (model.SOC[ft, j] - self.bevs[j].soc_start)/(self.bevs[j].soc_target-self.bevs[j].soc_start)
+                    fullfillment_k = (model.SOC[ft, k] - self.bevs[k].soc_start)/(self.bevs[k].soc_target-self.bevs[k].soc_start)
+                    return fullfillment_j - fullfillment_k <= type(self)._OPTIONS['equal SOCs']
                 else:
                     return pe.Constraint.Skip
             else:
@@ -579,12 +579,11 @@ class GridLineOptimizer:
             # last considered timestep
             lt = self.current_timestep + self.horizon_width * 60/self.resolution -1
             # first considered timestep
-            ft = self.bevs[b].t_start
+            #ft = self.bevs[b].t_start
             if b > 0:
-                return self.bevs[b].soc_start * (model.SOC[lt, b] - model.SOC[ft, b])/ \
-                       (self.bevs[b].soc_target - self.bevs[b].soc_start) - \
-                       self.bevs[lb].soc_start * (model.SOC[lt, lb] - model.SOC[ft, lb]) / \
-                       (self.bevs[lb].soc_target - self.bevs[lb].soc_start) == 0
+                fullfillment_b = (model.SOC[lt, b] - self.bevs[b].soc_start) / (self.bevs[b].soc_target - self.bevs[b].soc_start)
+                fullfillment_lb = (model.SOC[lt, lb] - self.bevs[lb].soc_start) / (self.bevs[lb].soc_target - self.bevs[lb].soc_start)
+                return self.bevs[b].soc_start * fullfillment_b - self.bevs[lb].soc_start * fullfillment_lb == 0
             else:
                 return pe.Constraint.Skip
 
