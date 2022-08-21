@@ -588,7 +588,7 @@ class GridLineOptimizer:
                 return pe.Constraint.Skip
 
 
-        def atillas_rule(model, t, b):
+        def atillas_rule(model, b):
             """
             function to be passed to pyomo Constructor for Constraints - not intended
             to be called on its own.
@@ -599,11 +599,12 @@ class GridLineOptimizer:
             """
             lb = model.charger_buses.prevw(b)
             ct = self.current_timestep # current timestep
-            if t >= self.bevs[b].t_start and t < self.bevs[b].t_target:
+            #if t >= self.bevs[b].t_start and t < self.bevs[b].t_target:
+            if ct < self.bevs[b].t_target:
                 if b > 0:
-                    return sum(model.I[t, lb] for t in model.times if t >= ct) * \
-                           ((self.bevs[lb].t_target - t) / (self.bevs[lb].soc_target - self.bevs[lb].current_soc))**2 \
-                    <= sum(model.I[t, b] for t in model.times if t >= ct) * ((self.bevs[b].t_target - t) / \
+                    return sum(model.I[t, lb] for t in model.times if t >= self.bevs[lb].t_start and t < self.bevs[lb].t_target) * \
+                           ((self.bevs[lb].t_target - ct) / (self.bevs[lb].soc_target - self.bevs[lb].current_soc))**2 \
+                    <= sum(model.I[t, b] for t in model.times if t >= self.bevs[lb].t_start and t < self.bevs[lb].t_target) * ((self.bevs[b].t_target - ct) / \
                                                                  (self.bevs[b].soc_target - self.bevs[b].current_soc))**2
                 else:
                     return pe.Constraint.Skip
@@ -634,7 +635,8 @@ class GridLineOptimizer:
             model.equal_socs.pprint()
 
         if type(self)._OPTIONS['atillas constraint'] == True:
-            model.atillas_constraint = pe.Constraint(model.times*model.charger_buses, rule=atillas_rule)
+            model.atillas_constraint = pe.Constraint(model.charger_buses, rule=atillas_rule)
+            model.atillas_constraint.pprint()
 
         if type(self)._OPTIONS['steady charging'][0] > 0:
             model.steady_charging = pe.Constraint(model.times, model.charger_buses, rule=steady_charging_rule)
