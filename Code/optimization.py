@@ -602,10 +602,23 @@ class GridLineOptimizer:
             #if t >= self.bevs[b].t_start and t < self.bevs[b].t_target:
             if ct < self.bevs[b].t_target:
                 if b > 0:
-                    return sum(model.I[t, lb] for t in model.times if t >= self.bevs[lb].t_start and t < self.bevs[lb].t_target) * \
-                           ((self.bevs[lb].t_target - ct) / (self.bevs[lb].soc_target - self.bevs[lb].current_soc))**2 \
-                    <= sum(model.I[t, b] for t in model.times if t >= self.bevs[lb].t_start and t < self.bevs[lb].t_target) * ((self.bevs[b].t_target - ct) / \
-                                                                 (self.bevs[b].soc_target - self.bevs[b].current_soc))**2
+                    ts_lb = self.bevs[lb].t_start
+                    tt_lb = self.bevs[lb].t_target
+                    currents_lb = sum(model.I[t, lb] for t in model.times if t >= ts_lb and t < tt_lb)
+                    dt_lb = self.bevs[lb].t_target - ct
+                    dsoc_lb = self.bevs[lb].soc_target - self.bevs[lb].current_soc
+
+                    ts_b = self.bevs[b].t_start
+                    tt_b = self.bevs[b].t_target
+                    currents_b = sum(model.I[t, b] for t in model.times if t >= ts_b and t < tt_b)
+                    dt_b = self.bevs[b].t_target - ct
+                    dsoc_b = self.bevs[b].soc_target - self.bevs[b].current_soc
+                    # return sum(model.I[t, lb] for t in model.times if t >= self.bevs[lb].t_start and t < self.bevs[lb].t_target) * \
+                    #        ((self.bevs[lb].t_target - ct) / (self.bevs[lb].soc_target - self.bevs[lb].current_soc))**2 \
+                    # <= sum(model.I[t, b] for t in model.times if t >= self.bevs[lb].t_start and t < self.bevs[lb].t_target) * ((self.bevs[b].t_target - ct) / \
+                    #                                              (self.bevs[b].soc_target - self.bevs[b].current_soc))**2
+                    return currents_lb * (dt_lb / dsoc_lb)**2 <= currents_b * (dt_b / dsoc_b)**2
+
                 else:
                     return pe.Constraint.Skip
 
