@@ -93,7 +93,7 @@ def func_opt(tee, marker, queue):
         test._prepare_next_timestep(update_bevs=False)
         test._setup_model()
         #t_counter += 1 # is ja eigener Prozess, sieht die global t_counter von main gar nicht!
-        time.sleep(1.5)
+        time.sleep(0.75)
 
     queue.put('done')
 
@@ -133,7 +133,7 @@ def func_sim(queue):
 
         # run simulation with only the results for the first timestep
         sim_handler_1.run_GLO_sim(hh_data, res_I, parallel=True)#, timesteps=1, parallel=True)# timesteps=2
-        time.sleep(0.5)
+        time.sleep(0.25)
         #sim_handler_1.plot_EMO_sim_results(resolution, element='buses')
         #sim_handler_1.plot_EMO_sim_results(freq=resolution, element='lines')
         #sim_handler_1.plot_EMO_sim_results(freq=resolution, element='trafo')

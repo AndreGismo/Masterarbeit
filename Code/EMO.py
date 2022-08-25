@@ -486,7 +486,7 @@ class Simulation_Handler():
 
             # add wallbox loads (current*voltage(assumed))
             for wallbox_bus in wallbox_data.keys():
-                self.system.grid.load.loc[wallbox_bus, 'p_mw'] += wallbox_data[wallbox_bus][step] *400*1e-6
+                self.system.grid.load.loc[wallbox_bus, 'p_mw'] += wallbox_data[wallbox_bus][step] * 400 * 1e-6
 
             # all loads set => start simulation
             pp.runpp(self.system.grid, max_iterations=30)

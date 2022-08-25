@@ -18,11 +18,11 @@ from EMO import *
 import matplotlib.pyplot as plt
 import numpy as np
 
-ROLLING = False
-random_wishes = True
-use_emo = True # run EMO simulation to verify the optimization results
-emo_unoptimized = True # run EMO sinulation without optimization (BEVs charge according to P(SOC) curve) but P(U) controling
-emo_uncontrolled = True # run EMO simulation without optimization and without controlling
+ROLLING = True
+random_wishes = False
+use_emo = False # run EMO simulation to verify the optimization results
+emo_unoptimized = False # run EMO sinulation without optimization (BEVs charge according to P(SOC) curve) but P(U) controling
+emo_uncontrolled = False # run EMO simulation without optimization and without controlling
 
 update_bevs = True
 
@@ -34,12 +34,12 @@ if use_emo and (emo_unoptimized or emo_uncontrolled):
 # define scenario
 #========================================================
 
-seed = 5 # for creating reproducible "random" numbers
-resolution = 15 # resolution in minutes
+seed = 7 # for creating reproducible "random" numbers
+resolution = 6 # resolution in minutes
 horizon = 24 # time horizon [h]
-buses = 40 # buses on the grid line (excluding trafo lv and mv and slack)
-bevs = 40 # buses with charging station (makes no sense to choose greater than buses)
-p_trafo = 250  # power of transformer [kVA]
+buses = 6 # buses on the grid line (excluding trafo lv and mv and slack)
+bevs = 2 # buses with charging station (makes no sense to choose greater than buses)
+p_trafo = 15  # power of transformer [kVA]
 bev_lst = list(range(bevs)) # for iterating purposes
 bus_lst = list(range(buses)) # for iterating purposes
 
@@ -47,13 +47,13 @@ bus_lst = list(range(buses)) # for iterating purposes
 # you need to take care that these make sense (e.g. target soc is greater than start soc)
 # as software won't raise exception =========================================================
 # soc [%]
-start_socs_mean = 10
-start_socs_deviation_plus = 0
-start_socs_deviation_minus = 0
+start_socs_mean = 30
+start_socs_deviation_plus = 10
+start_socs_deviation_minus = 10
 
-target_socs_mean = 100
-target_socs_deviation_plus = 0
-target_socs_deviation_minus = 0
+target_socs_mean = 80
+target_socs_deviation_plus = 20
+target_socs_deviation_minus = 20
 
 # time [h]
 start_times_mean = 10
@@ -78,10 +78,10 @@ if random_wishes:
 
 else: # create them on your own (length of list must equal bevs)
     home_buses = [0, 5]
-    start_socs = [50, 20]
+    start_socs = [10, 30]
     target_socs = [100, 100]
-    target_times = [20, 20]
-    start_times = [16, 16]
+    target_times = [21, 21]
+    start_times = [12, 16]
     bat_energies = [50, 50]
 
 
@@ -94,7 +94,7 @@ ann_dems = [3500 for _ in range(buses)]
 
 #==== create the BEV instances ==============================================================
 bev_list = []
-for car in bev_lst:
+for car in range(len(home_buses)):#home_buses:
     bev = BEV(soc_start=start_socs[car], soc_target=target_socs[car],
               t_target=target_times[car], e_bat=bat_energies[car],
               resolution=resolution, home_bus=home_buses[car],
@@ -105,13 +105,13 @@ for car in bev_lst:
 household_list = []
 for bus in bus_lst:
     household = HH(home_bus=bus, annual_demand=ann_dems[bus], resolution=resolution)
-    #household.raise_demand(11, 19, 23800) # raise demand to simulate additional electric loads if you like
+    household.raise_demand(8, 16, 1700) # raise demand to simulate additional electric loads if you like
     household_list.append(household)
 
 #==== choose additional setup for optimizer =================================================
 #GLO.set_options('log results', True)
-#GLO.set_options('fairness', 2)
-#GLO.set_options('equal SOCs', 0.1)
+#GLO.set_options('fairness', 0)
+GLO.set_options('equal SOCs', 0)
 #GLO.set_options('equal products', True)
 #GLO.set_options('atillas constraint', True)
 
@@ -127,14 +127,14 @@ test = GLO(number_buses=buses, bevs=bev_list, resolution=resolution, trafo_power
 if not ROLLING:
     test.run_optimization_single_timestep(tee=True)
     test.optimization_model.SOC.pprint()
-    test.plot_all_results(marker=None, save=False, usetex=True, compact_x=True, export_data=True)
+    test.plot_all_results(marker=None, save=False, usetex=False, compact_x=True, export_data=True)
     #test.plot_I_results(marker=None, save=True, usetex=True, compact_x=True)
     #test.plot_SOC_results(marker=None, save=True, usetex=True, compact_x=True)
     test.export_socs_fullfillment()
 
 else:
-    test.run_optimization_rolling_horizon(tee=False, complete_horizon=24, update_bevs=update_bevs)
-    test.plot_all_results(marker=None, save=False, usetex=True, compact_x=True, export_data=True)
+    test.run_optimization_rolling_horizon(tee=False, complete_horizon=horizon, update_bevs=update_bevs)
+    test.plot_all_results(marker=None, save=False, usetex=False, compact_x=True, export_data=True)
     test.export_socs_fullfillment()
 
 if use_emo: # falls Rolling, dann sind ja schon die SOCs der BEVs angepasst woreden => müssen wieder auf SOC_start gesetzt werden
@@ -154,7 +154,7 @@ if use_emo: # falls Rolling, dann sind ja schon die SOCs der BEVs angepasst wore
 
 #==== start the emo net simulation =============================================================
     if not emo_unoptimized:
-        sim_handler_1.run_GLO_sim(hh_data, wb_data, int(horizon * 60 / resolution), parallel=False)
+        sim_handler_1.run_GLO_sim(hh_data, wb_data, parallel=False)#, int(horizon * 60 / resolution), parallel=False)
         print('Starte Netzsimulation mit Optimierungsergebnissen')
 
     else:
@@ -164,7 +164,7 @@ if use_emo: # falls Rolling, dann sind ja schon die SOCs der BEVs angepasst wore
             print('Starte Netzsimulation ohne Optimierungsergebnissen, nutze P(U)-Regelung')
 
         else:
-            sim_handler_1.run_unoptimized_sim(hh_data, bev_list, int(24 * 60 / resolution), control=False)
+            sim_handler_1.run_unoptimized_sim(hh_data, bev_list, int(horizon * 60 / resolution), control=False)
             test.export_socs_fullfillment(optimized=False)
             print('Starte Netzsimulation ohne Optimierungsergebnissen, freies Laden')
 

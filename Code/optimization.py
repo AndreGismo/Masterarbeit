@@ -224,7 +224,7 @@ class GridLineOptimizer:
 
     def _make_bev_dict(self, bevs):
         bev_dict = {bev.home_bus: bev for bev in bevs}
-        self.bevs = bev_dict
+        self.bevs = dict(sorted(bev_dict.items()))
 
 
     def _setup_bevs(self):
@@ -286,14 +286,14 @@ class GridLineOptimizer:
             return {i: 400-(i+1)/2 for i in self.buses}
 
         elif type(voltages) == int or type(voltages) == float:
-            return {i: voltages for i in self.lines}
+            return {i: voltages for i in self.buses}
 
         else:
             if not len(voltages) == len(self.lines):
                 raise ValueError("Length of gridline is {}, but {} node voltages were passed"
                                  .format(len(self.lines), len(impedances)))
 
-                return {i: voltages[i] for i in self.lines}
+                return {i: voltages[i] for i in self.buses}
 
 
 
@@ -541,16 +541,29 @@ class GridLineOptimizer:
 
 
         def alt_equal_socs_rule(model, j, k):
-            ft = self.current_timestep + self.horizon_width * 60 / self.resolution - 1
-            #if j < np.max(model.charger_buses) + 1: #hier muss nicht die Länge, sondern das MAXIMUM in charger_buses verwendet werden!
-            if j > k:
-                fullfillment_j = (model.SOC[ft, j] - self.bevs[j].soc_start)/(self.bevs[j].soc_target-self.bevs[j].soc_start)
-                fullfillment_k = (model.SOC[ft, k] - self.bevs[k].soc_start)/(self.bevs[k].soc_target-self.bevs[k].soc_start)
-                return fullfillment_j - fullfillment_k <= type(self)._OPTIONS['equal SOCs']
+            if self.rolling:
+                ft_j = self.bevs[j].t_target#self.current_timestep + self.horizon_width * 60 / self.resolution - 1
+                ft_k = self.bevs[k].t_target
+                #if j < np.max(model.charger_buses) + 1: #hier muss nicht die Länge, sondern das MAXIMUM in charger_buses verwendet werden!
+                if self.current_timestep < min(ft_j, ft_k):
+                    if j > k:
+                        fullfillment_j = (model.SOC[ft_j, j] - self.bevs[j].soc_start)/(self.bevs[j].soc_target-self.bevs[j].soc_start)
+                        fullfillment_k = (model.SOC[ft_k, k] - self.bevs[k].soc_start)/(self.bevs[k].soc_target-self.bevs[k].soc_start)
+                        return fullfillment_j - fullfillment_k <= type(self)._OPTIONS['equal SOCs']
+                    else:
+                        return pe.Constraint.Skip
+
+                else:
+                    return pe.Constraint.Skip
+
             else:
-                return pe.Constraint.Skip
-            #else:
-                #return pe.Constraint.Skip
+                ft = self.current_timestep + self.horizon_width * 60 / self.resolution - 1
+                if j > k:
+                    fullfillment_j = (model.SOC[ft, j] - self.bevs[j].soc_start) / (self.bevs[j].soc_target - self.bevs[j].soc_start)
+                    fullfillment_k = (model.SOC[ft, k] - self.bevs[k].soc_start) / (self.bevs[k].soc_target - self.bevs[k].soc_start)
+                    return fullfillment_j - fullfillment_k <= type(self)._OPTIONS['equal SOCs']
+                else:
+                    return pe.Constraint.Skip
 
 
         def steady_charging_rule(model, t, b):
@@ -577,13 +590,19 @@ class GridLineOptimizer:
             """
             lb = model.charger_buses.prevw(b)
             # last considered timestep
-            lt = self.current_timestep + self.horizon_width * 60/self.resolution -1
+            lt_b = self.bevs[b].t_target#self.current_timestep + self.horizon_width * 60/self.resolution -1
+            lt_lb = self.bevs[lb].t_target
             # first considered timestep
             #ft = self.bevs[b].t_start
-            if b > 0:
-                fullfillment_b = (model.SOC[lt, b] - self.bevs[b].soc_start) / (self.bevs[b].soc_target - self.bevs[b].soc_start)
-                fullfillment_lb = (model.SOC[lt, lb] - self.bevs[lb].soc_start) / (self.bevs[lb].soc_target - self.bevs[lb].soc_start)
-                return self.bevs[b].soc_start * fullfillment_b - self.bevs[lb].soc_start * fullfillment_lb == 0
+            if  self.current_timestep < min(self.bevs[b].t_target, self.bevs[lb].t_target):
+                if b > 0:
+                    fullfillment_b = (model.SOC[lt_b, b] - self.bevs[b].soc_start) / (self.bevs[b].soc_target - self.bevs[b].soc_start)
+                    fullfillment_lb = (model.SOC[lt_lb, lb] - self.bevs[lb].soc_start) / (self.bevs[lb].soc_target - self.bevs[lb].soc_start)
+                    return self.bevs[b].soc_start * fullfillment_b - self.bevs[lb].soc_start * fullfillment_lb == 0
+
+                else:
+                    return pe.Constraint.Skip
+
             else:
                 return pe.Constraint.Skip
 
@@ -628,6 +647,7 @@ class GridLineOptimizer:
 
         if type(self)._OPTIONS['consider linear']:
             model.min_voltage = pe.Constraint(model.times, rule=min_voltage_rule)
+
         else:
             model.calc_voltages = pe.Constraint(model.times*model.buses, rule=calc_voltages_rule)
 
@@ -641,15 +661,15 @@ class GridLineOptimizer:
 
         if type(self)._OPTIONS['fairness'] < 27:
             model.fair_charging = pe.Constraint(model.times*model.charger_buses*model.charger_buses, rule=fair_charging_rule)
-            model.fair_charging.pprint()
+            #model.fair_charging.pprint()
 
         if type(self)._OPTIONS['equal SOCs'] < 1:
             model.equal_socs = pe.Constraint(model.charger_buses*model.charger_buses, rule=alt_equal_socs_rule)
-            model.equal_socs.pprint()
+            #model.equal_socs.pprint()
 
         if type(self)._OPTIONS['atillas constraint'] == True:
             model.atillas_constraint = pe.Constraint(model.charger_buses, rule=atillas_rule)
-            model.atillas_constraint.pprint()
+            #model.atillas_constraint.pprint()
 
         if type(self)._OPTIONS['steady charging'][0] > 0:
             model.steady_charging = pe.Constraint(model.times, model.charger_buses, rule=steady_charging_rule)
@@ -747,7 +767,6 @@ class GridLineOptimizer:
 
 
     def export_I_results(self):
-        #num_timesteps = int(self.horizon_width * 60 / self.resolution)
         if not self.rolling:
             return {bev: [self.optimization_model.I[t, bev].value for t in self.times]
                     for bev in self.bevs.keys()}
@@ -1127,6 +1146,7 @@ class GridLineOptimizer:
     @classmethod
     def set_options(cls, key, value):
         cls._OPTIONS[key] = value
+
 
 
 
