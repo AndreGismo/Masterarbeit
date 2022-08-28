@@ -70,7 +70,7 @@ hh_data = test.export_household_profiles()
 
 #### EMO ######################################################################
 system_1 = Low_Voltage_System(line_type='NAYY 4x120 SE', transformer_type="0.25 MVA 10/0.4 kV")
-system_1.grid_from_GLO('grids/optimized_grid.xlsx', grid_specs)
+system_1.grid_from_GLO('optimized_grid.xlsx', grid_specs)
 
 sim_handler_1 = Simulation_Handler(system_1,
                                     start_minute=60 * 12,
@@ -86,14 +86,14 @@ def func_opt(tee, marker, queue):
     for t in range(t_steps):
         print('optimization round', t, 'running in process', pid)
         test.run_optimization_single_timestep(tee=tee)
-        I_res = test.export_I_results()
+        I_res = test.export_current_I_results(1)
         #print(I_res)
         queue.put(I_res) # vielleicht ohne block?
         test._store_results()
-        test._prepare_next_timestep()
+        test._prepare_next_timestep(update_bevs=False)
         test._setup_model()
         #t_counter += 1 # is ja eigener Prozess, sieht die global t_counter von main gar nicht!
-        time.sleep(1.5)
+        time.sleep(0.75)
 
     queue.put('done')
 
@@ -132,8 +132,8 @@ def func_sim(queue):
             break
 
         # run simulation with only the results for the first timestep
-        sim_handler_1.run_GLO_sim(hh_data, res_I, timesteps=2, parallel=True)
-        time.sleep(0.5)
+        sim_handler_1.run_GLO_sim(hh_data, res_I, parallel=True)#, timesteps=1, parallel=True)# timesteps=2
+        time.sleep(0.25)
         #sim_handler_1.plot_EMO_sim_results(resolution, element='buses')
         #sim_handler_1.plot_EMO_sim_results(freq=resolution, element='lines')
         #sim_handler_1.plot_EMO_sim_results(freq=resolution, element='trafo')

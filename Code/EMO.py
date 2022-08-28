@@ -453,18 +453,18 @@ class Simulation_Handler():
         for line in self.res_GLO_sim['lines']:
             #print(self.res_GLO_sim['lines'])
             #print(line)
-            self.res_GLO_sim_I[line+2].append(self.res_GLO_sim['lines'][line][1])
+            self.res_GLO_sim_I[line+2].append(self.res_GLO_sim['lines'][line][0])
 
         for bus in self.res_GLO_sim['buses']:
             #print(self.res_GLO_sim['buses'])
-            self.res_GLO_sim_U[bus-2].append(self.res_GLO_sim['buses'][bus][1])
+            self.res_GLO_sim_U[bus-2].append(self.res_GLO_sim['buses'][bus][0])
 
-        self.res_GLO_sim_trafo.append(self.res_GLO_sim['trafo'][1])
+        self.res_GLO_sim_trafo.append(self.res_GLO_sim['trafo'][0])
 
 
 
-    @get_results
-    def run_GLO_sim(self, household_data, wallbox_data, timesteps, parallel):
+    #@get_results
+    def run_GLO_sim(self, household_data, wallbox_data, parallel):#, timesteps, parallel):
         """ By André
         runs a simulation according to the data and grid the GLO was optimizing for
         and stores results (line loading, bus voltage, transformer loading) as an
@@ -478,14 +478,15 @@ class Simulation_Handler():
                             'lines': {i: [] for i in self.system.grid.line.index},
                             'trafo': []}
 
-        for step in range(timesteps):
+        for step in range(len(next(iter(wallbox_data.values())))):
+            print('step: ', step)
             # set household loads
             for bus in self.system.grid.load.index:
                 self.system.grid.load.loc[bus, 'p_mw'] = household_data[bus][step] * 1e-6
 
             # add wallbox loads (current*voltage(assumed))
             for wallbox_bus in wallbox_data.keys():
-                self.system.grid.load.loc[wallbox_bus, 'p_mw'] += wallbox_data[wallbox_bus][step] *400*1e-6
+                self.system.grid.load.loc[wallbox_bus, 'p_mw'] += wallbox_data[wallbox_bus][step] * 400 * 1e-6
 
             # all loads set => start simulation
             pp.runpp(self.system.grid, max_iterations=30)
@@ -499,6 +500,11 @@ class Simulation_Handler():
                     self.res_GLO_sim['buses'][bus_nr].append(self.system.grid.res_bus.loc[bus_nr, 'vm_pu']*400)
 
             self.res_GLO_sim['trafo'].append(self.system.grid.res_trafo.loc[0, 'loading_percent'])
+
+            if parallel:
+                # get the results from self.res_GLO_sim[<element>] and append them to
+                # self.res_GLO_sim_<element>, so they dont get lost between multiple calls
+                self.get_first_results()
 
 
     def run_unoptimized_sim(self, household_data, bevs, timesteps, control=False):
