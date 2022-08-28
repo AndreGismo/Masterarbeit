@@ -34,7 +34,7 @@ t_counter = 0
 home_buses = [0, 1, 2, 3, 4, 5]
 start_socs = [20, 20, 30, 20, 25, 40]
 target_socs = [80, 70, 80, 90, 80, 70]
-target_times = [10, 16, 18, 18, 17, 18]
+target_times = [10, 18, 18, 18, 18, 18]
 start_times = [2, 2, 2, 2, 2, 2]
 bat_energies = [50, 50, 50, 50, 50, 50]
 
@@ -54,7 +54,7 @@ for car in bev_lst:
 household_list = []
 for bus in bus_lst:
     household = HH(home_bus=bus, annual_demand=ann_dems[bus], resolution=resolution)
-    household.raise_demand(11, 19, 23500)
+    #household.raise_demand(11, 19, 23500)
     household_list.append(household)
 
 test = GLO(number_buses=buses, bevs=bev_list, resolution=resolution, trafo_power=s_trafo,
@@ -90,7 +90,7 @@ def func_opt(tee, marker, queue):
         #print(I_res)
         queue.put(I_res) # vielleicht ohne block?
         test._store_results()
-        test._prepare_next_timestep(update_bevs=False)
+        test._prepare_next_timestep(update_bevs=True)
         test._setup_model()
         #t_counter += 1 # is ja eigener Prozess, sieht die global t_counter von main gar nicht!
         time.sleep(0.75)
@@ -113,7 +113,7 @@ def func_sim(queue):
 
     # first run optimization for first timestep to have results
     test.run_optimization_single_timestep(tee=False)
-    res_I = test.export_I_results()
+    res_I = test.export_current_I_results(1)
 
     last_I_res = res_I
     # start the thread to monitor the queue
@@ -133,7 +133,8 @@ def func_sim(queue):
 
         # run simulation with only the results for the first timestep
         sim_handler_1.run_GLO_sim(hh_data, res_I, parallel=True)#, timesteps=1, parallel=True)# timesteps=2
-        time.sleep(0.25)
+        print('Länge der Ergebnisse (sollte am Ende 96 sein):', len(sim_handler_1.res_GLO_sim_trafo))
+        time.sleep(0.75)
         #sim_handler_1.plot_EMO_sim_results(resolution, element='buses')
         #sim_handler_1.plot_EMO_sim_results(freq=resolution, element='lines')
         #sim_handler_1.plot_EMO_sim_results(freq=resolution, element='trafo')
@@ -154,3 +155,8 @@ if __name__ == '__main__':
     for i in range(6):
         plt.plot(range(len(sim_handler_1.res_GLO_sim_trafo)), sim_handler_1.res_GLO_sim_U[i])
     plt.show()
+
+    plt.plot(range(len(sim_handler_1.res_GLO_sim_trafo)), sim_handler_1.res_GLO_sim_trafo)
+    plt.show()
+
+    test.plot_all_results(marker=None, save=False, usetex=False, compact_x=True, export_data=True)
