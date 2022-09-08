@@ -75,6 +75,14 @@ class BatteryElectricVehicle:
 
 
     def reset_soc(self):
+        """
+        resets the BEVs SOC (only needed, in case a unoptimized grid simultion
+        is run to make sure the calculation of charging power according to
+        P(SOC) characteristic goes well (because a rolling horizon optimization
+        beforhand might have already tempered the SOCs)).
+        Only gets called from inside Simulation_Handler.run_unoptimized_sim.
+        :return: None
+        """
         self.current_soc = self.soc_start
 
 
