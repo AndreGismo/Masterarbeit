@@ -74,6 +74,10 @@ class BatteryElectricVehicle:
         return p_soc
 
 
+    def reset_soc(self):
+        self.current_soc = self.soc_start
+
+
     def _make_waiting_times(self):
         self.waiting_times = [0 for _ in range(int(24*60/self.resolution))]
         waited = 0

@@ -331,7 +331,7 @@ class GridLineOptimizer:
         return {num: self.line_lengths[num]*impedance for num, impedance in enumerate(self.impedances.values())}
 
 
-    def _carry_over_last_socs(self, update_bevs):
+    def _carry_over_last_socs(self):
         """
         after each run of the optimizer, fetch the results from the optimization
         model (the socs of the second timestep in the current horizon) and use
@@ -351,11 +351,11 @@ class GridLineOptimizer:
             self.soc_lower_bounds[bus][self.current_timestep] = socs_to_carry_over[num]
             self.soc_upper_bounds[bus][self.current_timestep] = socs_to_carry_over[num]
 
-        if update_bevs:
-            self._update_bev_socs(socs_to_carry_over)
+
+        self._update_bev_socs(socs_to_carry_over)
 
 
-    def _prepare_next_timestep(self, update_bevs):
+    def _prepare_next_timestep(self):
         if not self.rolling:
             self.rolling = True
 
@@ -365,7 +365,7 @@ class GridLineOptimizer:
         self._prepare_soc_lower_bounds()
         self._prepare_soc_upper_bounds()
 
-        self._carry_over_last_socs(update_bevs)
+        self._carry_over_last_socs()
         #self._update_bev_socs(SOCs2)
 
         self._prepare_i_lower_bounds()
@@ -863,13 +863,13 @@ class GridLineOptimizer:
             self.log_results()
 
 
-    def run_optimization_rolling_horizon(self, complete_horizon, update_bevs=False, **kwargs):
+    def run_optimization_rolling_horizon(self, complete_horizon, **kwargs):
         steps = int(complete_horizon * 60/self.resolution)
         for i in range(steps):
             print(i)
             self.run_optimization_single_timestep(tee=kwargs['tee'])
             self._store_results()
-            self._prepare_next_timestep(update_bevs)#=kwargs['update_bevs'])
+            self._prepare_next_timestep()#=kwargs['update_bevs'])
             self._setup_model()
 
 
@@ -1093,7 +1093,8 @@ class GridLineOptimizer:
     def export_socs_fullfillment(self, optimized=True):
         final_socs = self._get_socs_fullfillment(optimized)
         final_socs = pd.DataFrame(final_socs).T
-        final_socs.to_csv('socs_fullfillment.dat', sep='\\', index=False, header=False)
+        final_socs.index += 1
+        final_socs.to_csv('socs_fullfillment.dat', sep='\t', index=True, header=False)
 
 
     def resample_data(func):

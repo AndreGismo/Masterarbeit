@@ -18,28 +18,28 @@ from EMO import *
 import matplotlib.pyplot as plt
 import numpy as np
 
-ROLLING = True
-random_wishes = False
-use_emo = False # run EMO simulation to verify the optimization results
+ROLLING = False
+random_wishes = True
+use_emo = True # run EMO simulation to verify the optimization results
 emo_unoptimized = False # run EMO sinulation without optimization (BEVs charge according to P(SOC) curve) but P(U) controling
 emo_uncontrolled = False # run EMO simulation without optimization and without controlling
 
-update_bevs = True
-
-if use_emo and (emo_unoptimized or emo_uncontrolled):
-    update_bevs = False
-    print('rolling darf bevs nicht updaten')
+# update_bevs = True
+#
+# if use_emo and (emo_unoptimized or emo_uncontrolled):
+#     update_bevs = False
+#     print('rolling darf bevs nicht updaten')
 
 #========================================================
 # define scenario
 #========================================================
 
 seed = 7 # for creating reproducible "random" numbers
-resolution = 6 # resolution in minutes
+resolution = 15 # resolution in minutes
 horizon = 24 # time horizon [h]
-buses = 6 # buses on the grid line (excluding trafo lv and mv and slack)
-bevs = 2 # buses with charging station (makes no sense to choose greater than buses)
-p_trafo = 15  # power of transformer [kVA]
+buses = 40 # buses on the grid line (excluding trafo lv and mv and slack)
+bevs = 40 # buses with charging station (makes no sense to choose greater than buses)
+p_trafo = 250  # power of transformer [kVA]
 bev_lst = list(range(bevs)) # for iterating purposes
 bus_lst = list(range(buses)) # for iterating purposes
 
@@ -79,7 +79,7 @@ if random_wishes:
 else: # create them on your own (length of list must equal bevs)
     home_buses = [0, 5]
     start_socs = [10, 30]
-    target_socs = [100, 100]
+    target_socs = [80, 80]
     target_times = [21, 21]
     start_times = [12, 16]
     bat_energies = [50, 50]
@@ -111,8 +111,8 @@ for bus in bus_lst:
 #==== choose additional setup for optimizer =================================================
 #GLO.set_options('log results', True)
 #GLO.set_options('fairness', 0)
-GLO.set_options('equal SOCs', 0)
-#GLO.set_options('equal products', True)
+#GLO.set_options('equal SOCs', 0)
+GLO.set_options('equal products', True)
 #GLO.set_options('atillas constraint', True)
 
 #==== create optimizer instance =============================================================
@@ -133,7 +133,7 @@ if not ROLLING:
     test.export_socs_fullfillment()
 
 else:
-    test.run_optimization_rolling_horizon(tee=False, complete_horizon=horizon, update_bevs=update_bevs)
+    test.run_optimization_rolling_horizon(tee=False, complete_horizon=horizon)
     test.plot_all_results(marker=None, save=False, usetex=False, compact_x=True, export_data=True)
     test.export_socs_fullfillment()
 

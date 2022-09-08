@@ -519,6 +519,11 @@ class Simulation_Handler():
         :return:
         """
         cap = 1
+        for bev in bevs:
+            # reset SOCs (in case a rolling horizon optimization has been carried out before
+            # (which has also updated the current_soc of the bevs))
+            bev.reset_soc()
+
         for step in range(timesteps):
             #print(step)
             # set the household loads
