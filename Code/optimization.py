@@ -127,11 +127,7 @@ class GridLineOptimizer:
         self.p_trafo = trafo_power
         self.i_max = self.p_trafo * 1000 / self.u_trafo
 
-        if type(self)._OPTIONS['consider linear']:
-            self.solver = solver
-        else:
-            self.solver = 'ipopt'
-
+        self.solver = solver
         self.solver_factory = pe.SolverFactory(self.solver)
 
         self.line_capacities = self._make_line_capacities(line_capacities)
@@ -142,9 +138,7 @@ class GridLineOptimizer:
         self._make_bev_dict(bevs)
         self._setup_bevs()
         self.households = households
-        #self._determine_charger_locs()
         self._make_occupancy_times()
-        #self.voltages_tf = self._make_voltages_tf()
 
         self._prepare_soc_lower_bounds()
         self._prepare_soc_upper_bounds()
@@ -153,58 +147,35 @@ class GridLineOptimizer:
         self._prepare_i_lower_bounds()
         self._prepare_i_upper_bounds()
 
-        #self.optimization_model = self._setup_model()
         self._setup_model()
-        #self.grid = self._setup_grid()
 
-        # hier kommen dann die Ergebnisse für jeden Knoten zu jedem
-        # timstep der Strom rein (die SOCs werden im BEV gespeichert)
-        # wird durch store_results (welches in run_optimization_rolling_horizon
-        # aufgerufen wird) mit Werten überschrieben
+        # when using rolling horizon the results of the first timestep of each horizon
+        # are store in here
         self.results_I = {bus: [] for bus in self.bevs}
         self.results_SOC = {bus: [] for bus in self.bevs}
 
 
-    # wird nur bei dem allerersten Durchlauf der Optimierung genutzt
-    def _make_soc_lower_bounds(self):
-        soc_lower_bounds = {bev.home_bus: {t: bev.soc_start for t in self.times} for bev in self.bevs.values()}
-        for bev in self.bevs.values():
-            # dafür sorgen, dass an demjenigen Zeitpunkt, wo die geladen sein wollen t_target
-            # der gewünschte Ladestand soc_target dasteht
-            #soc_lower_bounds[bev.home_bus][bev.t_target] = bev.soc_target
-            pass
-            # und dasselbe für den zweiten Tag nochmal
-            #soc_lower_bounds[bev.home_bus][bev.t_target+int(24*60/self.resolution)] = bev.soc_target
-        self.soc_lower_bounds = soc_lower_bounds
-
-
-    # wird nur bei dem allerersten Durchlauf der Optimierung genutzt
-    def _make_soc_upper_bounds(self):
-        soc_upper_bounds = {bev.home_bus: {t: bev.soc_target for t in self.times} for bev in self.bevs.values()}
-        for bev in self.bevs.values():
-            # dafür sorgen, dass beim Startzeitpunkt die upper bound gleich der lower bound
-            # (also soc start) ist (bei anderen Startpunkten als 0 noch entsprechendes
-            # t_start in BEV einführen und hier statt 0 nutzen (geschieht schon über I, das dann immer 0 ist, wenn BEV nicht da)
-            soc_upper_bounds[bev.home_bus][0] = bev.soc_start
-            # und dasselbe für den nächste Tag
-            #soc_upper_bounds[bev.home_bus][0+int(24*60/self.resolution)] = bev.soc_start
-        self.soc_upper_bounds = soc_upper_bounds
-
-
     def _prepare_i_lower_bounds(self):
+        """
+        setup lower bounds of charging currents. They cant go below 0A.
+        :return: None
+        """
         i_lower_bounds = {bev.home_bus: {t: 0 for t in self.times} for bev in self.bevs.values()}
         self.i_lower_bounds = i_lower_bounds
 
 
     def _prepare_i_upper_bounds(self):
+        """
+        setup upper bounds of charging currents. They can only be greater than 0A
+        if the according BEV is at the chargin station at the according timestep.
+        They cant be greater than the charging power of the charging station
+        divided by the node voltage.
+        :return: None
+        """
+        # first, setup everything to be maximum
         i_upper_bounds = {bev.home_bus: {t: bev.p_load/0.4 for t in self.times} for bev in self.bevs.values()}
-        #print(i_upper_bounds)
-        # hier schon dafür sorgen, dass an denjenigen Stellen, wo das entsprechende BEV
-        # nicht an der Ladesäule steht, upper_bound zu 0 gesetzt wird
         for bev in self.bevs.values():
-            #if bev.t_start >= self.current_timestep:
-                #i_upper_bounds[bev.home_bus][bev.t_start] = 0
-            # if the current_timestep is below bev.t_start, than ...
+            # than, for each bev, set it to 0A if the bev is not at the charger at this timestep
             if self.current_timestep < bev.t_start:
                 # ... all the times before t_start there has to be 0
                 i_upper_bounds[bev.home_bus].update({t: 0 for t in self.times if t < bev.t_start})
@@ -223,41 +194,73 @@ class GridLineOptimizer:
 
 
     def _make_bev_dict(self, bevs):
+        """
+        make a nice dict out of all the BEVs, for more intuitive
+        indexing (via their home_bus)
+        :param bevs: list of BatteryElectricVehicles
+        :return: None
+        """
         bev_dict = {bev.home_bus: bev for bev in bevs}
+        # just in case the BEVs have been passed in a random order
+        # => sort them according to their home_bus
         self.bevs = dict(sorted(bev_dict.items()))
 
 
     def _setup_bevs(self):
+        """
+        tell each BEV the used width of the horizon in time
+        :return: None
+        """
         for bev in self.bevs.values():
             bev.set_horizon_width(self.horizon_width)
-            bev.make_occupancies()
+            #bev.make_occupancies()
 
 
     def _prepare_soc_lower_bounds(self):
+        """
+        setup lower bounds of the SOCs. They cant be less than the soc_start of the according BEV.
+        :return: None
+        """
         soc_lower_bounds = {bev.home_bus: {t: bev.soc_start for t in self.times} for bev in self.bevs.values()}
-        # for bev in self.bevs.values():
-        #     # alle werte von current_timestep
-        #     #soc_lower_bounds[bev.home_bus][bev.t_target - self.current_timestep] = bev.soc_target
-        #     #soc_lower_bounds[bev.home_bus][bev.t_target] = bev.soc_target
-        #     pass
         self.soc_lower_bounds = soc_lower_bounds
 
 
     def _prepare_soc_upper_bounds(self):
+        """
+        setup upper bounds of the socs. They must ot go higher than the desired soc_target of
+        the according BEV.
+        :return: None
+        """
         soc_upper_bounds = {bev.home_bus: {t: bev.soc_target for t in self.times} for bev in self.bevs.values()}
         self.soc_upper_bounds = soc_upper_bounds
 
 
     def _fix_first_socs(self):
+        """
+        make sure, that at the first considered timestep, the upper bounds equal the lower
+        bounds (soc_start of the according bev). This ensures that the BEVs really start
+        their charging with their soc_start (otherwise the optimizer would be allowed to
+        simply raise the SOC at the beginning of charging in order to allways fullfill
+        the wishes of the BEVs).
+        :return: None
+        """
         for bev in self.bevs.values():
             self.soc_upper_bounds[bev.home_bus][0] = bev.soc_start
 
 
     def _make_buses(self):
+        """
+        prepare buses list for indexing pyomo parameters in the optimization model.
+        :return: None
+        """
         return list(range(self.number_buses))
 
 
     def _make_lines(self):
+        """
+        prepare lines list for indexing pyomo parameters in the optimization model.
+        :return: None
+        """
         return list(range(self.number_buses))
 
 
