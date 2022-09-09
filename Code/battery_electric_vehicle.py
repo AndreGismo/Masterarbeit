@@ -6,9 +6,25 @@ wie groß die Batterie ist.
 import numpy as np
 
 class BatteryElectricVehicle:
+    """
+    class to simulate BEVs
+    """
     def __init__(self, home_bus, soc_start, soc_target, t_target,
                  t_start, resolution, current_timestep=0, p_load=11,
                  e_bat=50, recurring='daily'):
+        """
+        Build BEV
+        :param home_bus: bus of the grid line (including 0) where the BEV is charging
+        :param soc_start: SOC at start of charging
+        :param soc_target: desired SOC at end of charging
+        :param t_target: deadline for charging to be finished
+        :param t_start: charging start time
+        :param resolution: resolution in time
+        :param current_timestep: the current time step
+        :param p_load: nominal loading power of the charging station at home_bus
+        :param e_bat: nominal capacity of the BEVs battery
+        :param recurring: wheather or not the BEV starts charging at multiple days (currently not really used)
+        """
         self.home_bus = home_bus
         self.e_bat = e_bat
         #self.bus_voltage = bus_voltage
@@ -36,28 +52,48 @@ class BatteryElectricVehicle:
         """
         self.current_soc = value
         self.soc_list.append(value)
-        #print(f'SOC of BEV at node{self.home_bus} at timestep {self.current_timestep}: {self.current_soc} %')
 
 
     def get_current_power(self, timestep, cap):
+        """
+        calculate the loading power of the BEV at the current timestep
+        :param timestep: the current timestep
+        :param cap: power cap of the P(U)-controller
+        :return: load power of BEV including possible
+        cap of the controller
+        """
         if timestep < self.t_start:
+            # no loading if BEV is not at charger
             return 0
+
         elif timestep >= self.t_start  and timestep < self.t_target:
             if self.current_soc <= 80:
+                # load power = nominal power
                 self.calc_new_soc(self.p_load*cap)
                 return self.p_load*cap
+
             elif self.current_soc > 80 and self.current_soc <= 100:
                 # calculate according to exponential decrease formula
                 p_load_calc = self.calc_p_load()
                 self.calc_new_soc(p_load_calc*cap)
                 return p_load_calc*cap
+
             else:
+                # no more loading if SOC = 100%
                 return 0
+
         else:
+            # no loading if BEV is not at charger
             return 0
 
 
     def calc_new_soc(self, power):
+        """
+        calculate new soc fo the timestep according to the load power
+        and battery size
+        :param power: load power of the current timestep
+        :return: None
+        """
         self.current_soc += (power * self.resolution/60)/self.e_bat*100
         if self.current_soc > 100:
             self.current_soc = 100
@@ -65,6 +101,11 @@ class BatteryElectricVehicle:
 
 
     def calc_p_load(self):
+        """
+        calculate new load power for the timestep according to P(SOC)
+        characteristic
+        :return: new load power
+        """
         # calculate load stop power
         p_ls = 4.2/3.9*0.03*self.e_bat
         # calculate loading correcture factor
