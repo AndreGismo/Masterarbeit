@@ -115,7 +115,7 @@ class GridLineOptimizer:
                  voltages=None, line_impedances=None, line_lengths=None, line_capacities=None,
                  solver='glpk'):
         """
-
+        create GridLineOptimizer
 
         :param number_buses: number of buses in the grid line
         :param bevs: list of BatteryElectricVehivle instances

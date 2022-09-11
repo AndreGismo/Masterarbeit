@@ -27,6 +27,7 @@ class BatteryElectricVehicle:
                  e_bat=50, recurring='daily'):
         """
         Build BEV
+
         :param home_bus: bus of the grid line (including 0) where the BEV is charging
         :param soc_start: SOC at start of charging
         :param soc_target: desired SOC at end of charging
@@ -58,7 +59,7 @@ class BatteryElectricVehicle:
         """
         updates the current_soc of the BEV with the value from the optimization.
 
-        :param value: SOC
+        :param value: SOC [%]
         :return: None
         """
         self.current_soc = value

@@ -2,7 +2,9 @@
 Author: André Ulrich
 --------------------
 testcase for optimization with GridLineOptimizer and validation of results
-with grid simulation with EMO
+with grid simulation with EMO.
+
+Uses all the functionalities of GridLineOptimizer and EMOs Simulation_Handler.
 
 Version history (only the most relevant points, full history is available on github):
 -------------------------------------------------------------------------------------------------
