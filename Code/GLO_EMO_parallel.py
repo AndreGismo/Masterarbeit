@@ -1,6 +1,19 @@
 """
 Author: André Ulrich
-Test parallelization of GLO and EMO
+--------------------
+Test parallelization of optimization (GridLineOptimizer) and grid simulation (EMO).
+Optimization is running in own separate process and sends the results of optimized
+BEV charging currents (only the ones of the current timestep) through a queue
+to the EMO where an according grid silation is run.
+
+Version history (only the most relevant points, full history is available on github):
+-------------------------------------------------------------------------------------------------
+V.1: first working parallelization approach
+
+V.2: separate thread for reading new results from queue
+
+all the other commits in much more detail are available here:
+https://github.com/AndreGismo/Masterarbeit/tree/submission)
 """
 import os
 
