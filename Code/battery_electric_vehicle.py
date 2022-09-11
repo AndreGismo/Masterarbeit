@@ -1,7 +1,20 @@
 """
-Klasse zur Simulation von Battery Electric Vehicles (BEVs). Der SOC wird getrackt und dann an die Optimierung
-zurückgemeldet. Außerdem wird festgehalten, an welcher Ladesäule (also an welchem Bus im Netz) das BEV lädt und
-wie groß die Batterie ist.
+Author: André Ulrich
+--------------------
+Class for simulating BEVs.
+
+Usage: Just create them and pass them to the constructor of GridLineOptimizer.
+They can also be passed to Simulation_Handler.run_unoptimized_sim. In this case
+they use the implemented P(SOC) characteristic to calculate the charging power.
+
+Version history (only the most relevant points, full history is available on github):
+-------------------------------------------------------------------------------------------------
+V.1: first working description of a BEV
+
+V.2: added functionality for charging according to P(SOC) characteristic
+
+all the other commits in much more detail are available here:
+https://github.com/AndreGismo/Masterarbeit/tree/submission)
 """
 import numpy as np
 
@@ -27,7 +40,6 @@ class BatteryElectricVehicle:
         """
         self.home_bus = home_bus
         self.e_bat = e_bat
-        #self.bus_voltage = bus_voltage
         self.soc_start = soc_start
         self.soc_target = soc_target
         self.resolution = resolution
@@ -38,15 +50,14 @@ class BatteryElectricVehicle:
         self.is_loading = True
         self.current_timestep = current_timestep
         self.recurring = recurring
-        self.horizon_width = None # bekommt von GLO mitgeteilt
-        self.occupancies = None # wird auch von GLO aus aufgerufen
+        self.horizon_width = None
         self.current_soc = soc_start
-        self._make_waiting_times()
 
 
     def update_soc(self, value):
         """
-        updates the current_soc of the BEV with the value from the optimization
+        updates the current_soc of the BEV with the value from the optimization.
+
         :param value: SOC
         :return: None
         """
@@ -56,7 +67,8 @@ class BatteryElectricVehicle:
 
     def get_current_power(self, timestep, cap):
         """
-        calculate the loading power of the BEV at the current timestep
+        calculate the loading power of the BEV at the current timestep.
+
         :param timestep: the current timestep
         :param cap: power cap of the P(U)-controller
         :return: load power of BEV including possible
@@ -90,7 +102,8 @@ class BatteryElectricVehicle:
     def calc_new_soc(self, power):
         """
         calculate new soc fo the timestep according to the load power
-        and battery size
+        and battery size.
+
         :param power: load power of the current timestep
         :return: None
         """
@@ -104,6 +117,7 @@ class BatteryElectricVehicle:
         """
         calculate new load power for the timestep according to P(SOC)
         characteristic
+
         :return: new load power
         """
         # calculate load stop power
@@ -122,6 +136,7 @@ class BatteryElectricVehicle:
         P(SOC) characteristic goes well (because a rolling horizon optimization
         beforhand might have already tempered the SOCs)).
         Only gets called from inside Simulation_Handler.run_unoptimized_sim.
+
         :return: None
         """
         self.current_soc = self.soc_start

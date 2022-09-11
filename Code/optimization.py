@@ -1,40 +1,45 @@
 """
 Author: André Ulrich
 --------------------
-Klasse GridLineOptimizer, die ein Model zur Optimierung der Ladeleistungen von Ladesäulen entlang eines Netzstrahls
-erzeug. Um die Ergebnisse hinterher validieren zu können, ist auch direkt ein pandapower-Netz mit enthalten, mit dem
-man nach der Optimierung die Ergebnisse überprüfen kann.
+Class GridLineOptimizer: All the functionality to build an optimization model according
+to a specified grid line (number of buses, trafo power, number of BEV charging points,
+line impedances etc.) and solve for timeseries of optimized BEV charging currents and
+SOCs.
 
-Roling horizon geht jetzt!! die Ergebnisse von den SOCs schauen genauso aus, wie beim fixed horizon. Allerdings schauen
-die Is komisch aus (obwohl die ja im Model mit den SOCs verknüpft sind?!) => irgendwo Fehler beim Auslesen der Is
-aus dem Model??
+Usage: first create BatteryElectricVehicle and Household instances as needed and further
+specify the grid topology (number of nodes, line impedances, trafo power...).
+The correspondig optimization model gets automatically created on creation of the
+GridLineOptimizer instance. Before creation, some options may be passed via class method,
+to determine how the optimization model is going to look (further additional restrictions
+for fair charging).
+Once the instance is created, call run_optimization_fixed_horizon (for fixed horizon) or
+run_optimization_rolling_horizon (for rolling horizon) to solve the optimization model.
+With plot_all_results the results of optimization can be plotted and also exported.
+With export_soc_fullfillments the SOC fullfillments of all the BEVs can be exported.
+With export_I_results the results of optimized BEV charging currents can be exported
+for further usage with EMO grid simulation.
+With export_household_profiles the household load profiles can be exported for further
+usage with EMO grid simulation.
+With export_grid and export_grid_specs the whole grid topology can be exported for
+further usage with EMO grid simulation.
 
-Irgendiwe muss noch sichergestellt werden, dass die Optimierung nicht abschmiert, wenn die gewünschten SOCs zur
-gewünschten Uhrzeit nicht erreicht werden könne
-=> dafür erstmal die soc_lower_bounds ausschalten (bzw. den Teil, wo ab t_target dann soc_target eingetragen wird)
-dann muss noch in der Zielfunktion der Anreiz geschaffen werden, dass wirklich bis zu deren t_target möglichst viel
-geladen wird (momentan starten die erst kurz vor Ende) => Zielfunktion nur occupancy_times indexieren (dann muss
-aber auch noch voltages entsprechend angepasst werden)
 
-Beim upper und lower bounds von SOC und I auch mal so einstellen, dass da wirklich nur diejenigen Zeitpunkte drin sind,
-an denen wirklich geladen wird **
+Version history (only the most relevant points, full history is available on github):
+-------------------------------------------------------------------------------------------------
+V.1: first working formulation of optimization model
 
-bei prepare_soc_upper- und -lower_bounds noch dafür sorgen, dass als lower bound beim t_target vom jeweiligen BEV
-auch wirklich der soc_target steht
+V.2: further methods for exporting grid topology etc. for the interface to EMO grid simulation
 
-R von 0.04 auf 0.004 (was realistischer ist, für Leitungen von ca. 15m länge und 0.255 Ohm/km spezifischem Widerstand)
+V.3: added further constraints for fair charging
 
-Versionsgeschichte:
-V.1: upper und lower bounds der Variables als dict für die einzelnen timesteps => dadurch entfällt die Subtarktion
-des current_timestep beim Auslesen der bounds im model, außerdem intuitiver indexieren
+V.4: this whole documentation added and doctsrings for all the (relevant) methods and some more
+explanatory comments.
 
-V.2: "intelligentes" Set occupancy_times zum Indexieren. Darin sind jetzt nur noch diejenigen timesteps enthalten,
-an denen am jeweiligen Knoten auch wirklich ein BEV steht zum Laden => dadurch kann man de if-Abfrage vor den rules
-weglassen, die prüft, ob man im Ladezeitraum des entsprechenden BEVs ist. Eventuell können so auch mehrere separate
-Ladevorgänge an einem Bus innerhalb eines Horizonts ermöglicht werden (weil ja dann die timesteps eigentlich nicht mehr
-durchgängig miteinander verbunden sind.
+all the other commits in much more detail are available here:
+https://github.com/AndreGismo/Masterarbeit/tree/submission)
 """
 
+# these variables are used to tell the class wheather the according modules are available.
 _pandapower_available = True
 _networkx_available = True
 _pandas_available = True
@@ -100,18 +105,30 @@ class GridLineOptimizer:
     global _ipopt_available
 
 
-    _OPTIONS = {'distribute loadings': False,
-                'log results': False,
-                'consider linear': True,
+    _OPTIONS = {'log results': False,
                 'fairness': 27,
                 'equal SOCs': 1,
-                'steady charging': (0, 0),
                 'atillas constraint': False,
                 'equal products': False}
 
     def __init__(self, number_buses, bevs, households, trafo_power, resolution, horizon_width=24,
                  voltages=None, line_impedances=None, line_lengths=None, line_capacities=None,
                  solver='glpk'):
+        """
+
+
+        :param number_buses: number of buses in the grid line
+        :param bevs: list of BatteryElectricVehivle instances
+        :param households: list of Household instances
+        :param trafo_power: power of transformer [kW]
+        :param resolution: resolution in time [minutes]
+        :param horizon_width: width of the optimized horizon [hours]
+        :param voltages: voltages at the buses [V]
+        :param line_impedances: specific impedances of the lines [ohm*m-1]
+        :param line_lengths: length of lines [m]
+        :param line_capacities: maximum current the lines can conduct [A]
+        :param solver: solver to use (currently only 'glpk' makes sense)
+        """
         self.rolling = False
         self.current_timestep = 0
         self.resolution = resolution
@@ -1192,20 +1209,30 @@ class GridLineOptimizer:
         """
         final_timestep = self.horizon_width * int(60 / self.resolution) - 1
         if optimized:
+            # check if rolling horizon was used
             if not self.rolling:
+                # if not, calculate from optimization model Variable instances
                 final_socs = {bev: [(self.optimization_model.SOC[final_timestep, bev].value - self.bevs[bev].soc_start) / (self.bevs[bev].soc_target - self.bevs[bev].soc_start) * 100] for bev in self.bevs}
                 return final_socs
 
             else:
+                # if yes, calculate from BEVs currents_soc
                 final_socs = {bev.home_bus: [(bev.current_soc - bev.soc_start) / (bev.soc_target - bev.soc_start) * 100] for bev in self.bevs.values()}
                 return final_socs
 
         else:
+            # if no optimization was used, calculate from BEV current_soc
             final_socs = {bev.home_bus: [(bev.current_soc - bev.soc_start) / (bev.soc_target - bev.soc_start) * 100] for bev in self.bevs.values()}
             return final_socs
 
 
     def export_socs_fullfillment(self, optimized=True):
+        """
+        Export SOC fullfillments as .dat file.
+
+        :param optimized: gets directly passed to _get_soc_fullfillments
+        :return: None
+        """
         final_socs = self._get_socs_fullfillment(optimized)
         final_socs = pd.DataFrame(final_socs).T
         final_socs.index += 1
