@@ -1,5 +1,19 @@
 """
-Haushalts-Klasse in der die Informationen zu den Lastprofilen der Haushalte steckt
+Author: André Ulrich
+--------------------
+Class for simulating households
+
+Usage: Just create them and pass them to the constructor of GridLineOptimizer.
+With raise_demand the load profile can be altered to simulate additional loads.
+
+Version history (only the most relevant points, full history is available on github):
+-------------------------------------------------------------------------------------------------
+V.1: first working description of a household
+
+V.2: fixed the resampling: compute mean or interpolate, depending on asked resolution
+
+all the other commits in much more detail are available here:
+https://github.com/AndreGismo/Masterarbeit/tree/submission)
 """
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -16,6 +30,7 @@ class Household:
     def __init__(self, home_bus, annual_demand=3000, resolution=15):
         """
         create household
+
         :param home_bus: bus of the grid line (including 0) where the household is attached
         :param annual_demand: annual energy demand (kWh) for scaling the load profile
         :param resolution: resolution in time (minutes) for the load profile
@@ -28,6 +43,12 @@ class Household:
 
 
     def calc_load_profile(self):
+        """
+        calculate the load profile from the data source .csv file and scale according to
+        annual demand. Resample the data if needed.
+
+        :return: None
+        """
         self.load_profile = pd.read_csv(type(self)._data_source)
         # scale according to annual demand
         self.load_profile *= self.annual_demand/type(self)._e_norm
@@ -48,13 +69,19 @@ class Household:
 
 
     def plot_load_profile(self):
+        """
+        gimmick, to see how the altered profile looks like.
+
+        :return: None
+        """
         plt.plot(list(range(len(self.load_profile))), self.load_profile)
         plt.show()
 
 
     def raise_demand(self, start, end, demand, recurring=None):
         """
-        alter the load profile of the household
+        alter the load profile of the household.
+
         :param start: start time of additional load
         :param end: end time of additional load
         :param demand: amount of additional load (kW), negative values lower the demand
