@@ -3,6 +3,7 @@ channels:
   - defaults
 dependencies:
   - pandas
+  - pandapower
   - matplotlib
   - python
   - numpy
