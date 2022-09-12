@@ -10,4 +10,4 @@ dependencies:
   - pyomo
   - glpk
   - ipopt=3.11.1
-prefix: C:\Users\andre\anaconda3\envs\maThesis
+
