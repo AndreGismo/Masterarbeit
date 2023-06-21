@@ -7,13 +7,26 @@ Created August 2020
 
 @author: Hotz
 00==============================================
-Erweitert von André Ulrich für die Masterarbeit
-Zusammenspiel von GLO und EMO
+modified by André Ulrich for master thesis:
+Interface for exchanging data between optimization (GridLineOptimizer)
+and grid simulation (EMO)
+
 What has to be done:
+
 - create grid according to GLO
-- pass the household load profiles to GLO
-  (then GLO calculates optmized wallbox currents)
+- pass the household load profiles from GLO
 - receive the optimized wallbox currents from GLO
+
+Version history of changes by André (only the most relevant points, full history is available on github):
+-------------------------------------------------------------------------------------------------
+V.1: build grid according to GLO data of grid
+
+V.2: run simulation according to GLO data of optimized BEV charging currents
+
+V.3: run simulation with BEV charging data according to P(SOC) characteristic
+
+all the other commits in much more detail are available here:
+https://github.com/AndreGismo/Masterarbeit/tree/submission)
 """
 
 #plt.rcParams['figure.dpi'] = 300
@@ -185,6 +198,7 @@ class Low_Voltage_System():
         self.line_type=line_type
         self.transformer_type=transformer_type
         self.max_bus_power=35
+        # directly added attribute in constructor instead of assigning "on the fly"
         self.grid = None
 
 
@@ -268,21 +282,20 @@ class Low_Voltage_System():
         """ By André
         reads in the GLO_grid_file (which contains the information about the
         grid the GLO is optimizing for) and turns it into a pandapower grid
-        set as attribute of class
+        set as attribute of class.
+
         :param GLO_grid_file: excel-file
+        :param GLO_grid_params: dict of further parameters describing the grid
+        :param ideal: wheather or not to use an ideal transformer
         :return: None
         """
         grid_data = pd.read_excel(GLO_grid_file, sheet_name=['Lines', 'Busses'])
-        #buses = pd.read_excel(GLO_grid_file, sheet_name='Busses')
         v_mv = 20
         v_lv = 0.4
         s_trafo = GLO_grid_params['S transformer']
         line_specific_impedances = GLO_grid_params['line specific impedances']
         line_lenghts = GLO_grid_params['line lenghts']
         line_capacities = GLO_grid_params['line capacities']
-        #i_max_line = GLO_grid_params['i line max']
-        # assume all lines to be 15m for calculating R/l
-        #r_spec = line_impedance*1000/15 # /1000 since pandas expects length in km
 
         if ideal:
             vkr = 0
@@ -446,17 +459,16 @@ class Simulation_Handler():
 
 
     def get_first_results(self):
-        #self.currents = {num: i for num, i in enumerate(self.res_GLO_sim['lines'].values())}
-        #self.voltages = {num: u for num, u in enumerate(self.res_GLO_sim['buses'].values())}
-        # grab the value of the first timestep of each bus/node and append it
-        # to results list (that can late be plotted)
+        """ By André
+        for parallel execution of EMO and GLO: get the results for each component
+        of the first timestep and append it to res_GLO_sim_<component>
+
+        :return: None
+        """
         for line in self.res_GLO_sim['lines']:
-            #print(self.res_GLO_sim['lines'])
-            #print(line)
             self.res_GLO_sim_I[line+2].append(self.res_GLO_sim['lines'][line][0])
 
         for bus in self.res_GLO_sim['buses']:
-            #print(self.res_GLO_sim['buses'])
             self.res_GLO_sim_U[bus-2].append(self.res_GLO_sim['buses'][bus][0])
 
         self.res_GLO_sim_trafo.append(self.res_GLO_sim['trafo'][0])
@@ -464,20 +476,22 @@ class Simulation_Handler():
 
 
     #@get_results
-    def run_GLO_sim(self, household_data, wallbox_data, parallel):#, timesteps, parallel):
+    def run_GLO_sim(self, household_data, wallbox_data, parallel):
         """ By André
         runs a simulation according to the data and grid the GLO was optimizing for
         and stores results (line loading, bus voltage, transformer loading) as an
         attribut of the class, ready to be plotted.
-        :param household_data:
-        :param wallbox_data:
-        :param timesteps:
+
+        :param household_data: dict of household power profile
+        :param wallbox_data: dict of optimized BEV charging currents
+        :param parallel: wheater or not this simulation is running in parallel with the optimization
         :return: None
         """
         self.res_GLO_sim = {'buses': {i: [] for i in self.system.grid.bus.index if i > 1},
                             'lines': {i: [] for i in self.system.grid.line.index},
                             'trafo': []}
 
+        # determine how much timesteps to simulate (equals the length of one value of the wallbox_data dict)
         for step in range(len(next(iter(wallbox_data.values())))):
             print('step: ', step)
             # set household loads
@@ -496,7 +510,7 @@ class Simulation_Handler():
                 self.res_GLO_sim['lines'][line_nr].append(self.system.grid.res_line.loc[line_nr, 'loading_percent'])
 
             for bus_nr in self.system.grid.bus.index:
-                if bus_nr > 1: # skip first two buses
+                if bus_nr > 1: # skip first two buses (trafo lv and mv/slack)
                     self.res_GLO_sim['buses'][bus_nr].append(self.system.grid.res_bus.loc[bus_nr, 'vm_pu']*400)
 
             self.res_GLO_sim['trafo'].append(self.system.grid.res_trafo.loc[0, 'loading_percent'])
@@ -511,12 +525,14 @@ class Simulation_Handler():
         """By André
         run simulation according to unoptimized BEV loading timelines. The generation
         of the loading timeline of each BEV is done inside the BatteryElectricVehicle
-        class. These results are passed to the simulation here
+        class according to P(SOC) characteristic. These results are passed to the
+        simulation here.
 
-        :param household_data: uncontrollable loads from households
-        :param bevs: BatteryElectricVehicle objects
-        :param timestpes:
-        :return:
+        :param household_data: dict of household power profiles
+        :param bevs: list of BatteryElectricVehicle objects
+        :param timestpes: number of timesteps to simulate
+        :param control: wheather or not to use P(U) control
+        :return: None
         """
         cap = 1
         for bev in bevs:
@@ -548,37 +564,24 @@ class Simulation_Handler():
 
             # call the controller P(U)
             if control:
-                #cap = self.control_power(thres=0.98, cap=0.5)
                 cap = self.alt_control_power(thres_lo=0.94, thres_hi=0.98, last_cap=cap)
 
 
-    def control_power(self, thres, cap):
+    def alt_control_power(self, thres_lo, thres_hi, last_cap):
         """
-        run P(U) controlling. Check the voltages at each node, if one falls below critical value
-        than lower each controllable load by a certain amount
-        :param thres: critical value for node voltage
-        :param cap: amount to cap loads
+        call the P(U) controller
+
+        :param thres_lo: lowest voltage [pu] befor to start to lower all BEVs charging power
+        :param thres_hi: highest voltage [pu] before to start to raise all the BEVs charging power
+        :param last_cap: the cap of the last simulation round [-]
         :return:
         """
-        # check all the node voltages
-        failed = False
-        for bus in self.system.grid.res_bus.index:
-            if self.system.grid.res_bus.loc[bus, 'vm_pu'] < thres:
-                #print(f"voltage too low: {self.system.grid.res_bus.loc[bus, 'vm_pu']*400}")
-                failed = True
-                #break
-
-        if failed:
-            return 1-cap
-        else:
-            return 1
-
-
-    def alt_control_power(self, thres_lo, thres_hi, last_cap):
+        # is there one node voltage to low?
         if min([x for x in self.system.grid.res_bus.vm_pu]) < thres_lo:
             new_cap = last_cap * (1 - 0.05)
             return new_cap
 
+        # are all node voltages high enough?
         elif min([x for x in self.system.grid.res_bus.vm_pu]) > thres_hi:
             new_cap = last_cap * (1 + 0.02)
             if new_cap >= 1:
@@ -675,6 +678,7 @@ class Simulation_Handler():
     def export_sim_results(self, element, len_hrs=24, res_min=15, sep='\t'):
         """
         export values of simulated elements for nice plotting with pgfplots
+
         :param element: which elements values to export
         :param sep: column separator
         :return: none

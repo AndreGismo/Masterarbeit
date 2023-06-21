@@ -1,40 +1,45 @@
 """
 Author: André Ulrich
 --------------------
-Klasse GridLineOptimizer, die ein Model zur Optimierung der Ladeleistungen von Ladesäulen entlang eines Netzstrahls
-erzeug. Um die Ergebnisse hinterher validieren zu können, ist auch direkt ein pandapower-Netz mit enthalten, mit dem
-man nach der Optimierung die Ergebnisse überprüfen kann.
+Class GridLineOptimizer: All the functionality to build an optimization model according
+to a specified grid line (number of buses, trafo power, number of BEV charging points,
+line impedances etc.) and solve for timeseries of optimized BEV charging currents and
+SOCs.
 
-Roling horizon geht jetzt!! die Ergebnisse von den SOCs schauen genauso aus, wie beim fixed horizon. Allerdings schauen
-die Is komisch aus (obwohl die ja im Model mit den SOCs verknüpft sind?!) => irgendwo Fehler beim Auslesen der Is
-aus dem Model??
+Usage: first create BatteryElectricVehicle and Household instances as needed and further
+specify the grid topology (number of nodes, line impedances, trafo power...).
+The correspondig optimization model gets automatically created on creation of the
+GridLineOptimizer instance. Before creation, some options may be passed via class method,
+to determine how the optimization model is going to look (further additional restrictions
+for fair charging).
+Once the instance is created, call run_optimization_fixed_horizon (for fixed horizon) or
+run_optimization_rolling_horizon (for rolling horizon) to solve the optimization model.
+With plot_all_results the results of optimization can be plotted and also exported.
+With export_soc_fullfillments the SOC fullfillments of all the BEVs can be exported.
+With export_I_results the results of optimized BEV charging currents can be exported
+for further usage with EMO grid simulation.
+With export_household_profiles the household load profiles can be exported for further
+usage with EMO grid simulation.
+With export_grid and export_grid_specs the whole grid topology can be exported for
+further usage with EMO grid simulation.
 
-Irgendiwe muss noch sichergestellt werden, dass die Optimierung nicht abschmiert, wenn die gewünschten SOCs zur
-gewünschten Uhrzeit nicht erreicht werden könne
-=> dafür erstmal die soc_lower_bounds ausschalten (bzw. den Teil, wo ab t_target dann soc_target eingetragen wird)
-dann muss noch in der Zielfunktion der Anreiz geschaffen werden, dass wirklich bis zu deren t_target möglichst viel
-geladen wird (momentan starten die erst kurz vor Ende) => Zielfunktion nur occupancy_times indexieren (dann muss
-aber auch noch voltages entsprechend angepasst werden)
 
-Beim upper und lower bounds von SOC und I auch mal so einstellen, dass da wirklich nur diejenigen Zeitpunkte drin sind,
-an denen wirklich geladen wird **
+Version history (only the most relevant points, full history is available on github):
+-------------------------------------------------------------------------------------------------
+V.1: first working formulation of optimization model
 
-bei prepare_soc_upper- und -lower_bounds noch dafür sorgen, dass als lower bound beim t_target vom jeweiligen BEV
-auch wirklich der soc_target steht
+V.2: further methods for exporting grid topology etc. for the interface to EMO grid simulation
 
-R von 0.04 auf 0.004 (was realistischer ist, für Leitungen von ca. 15m länge und 0.255 Ohm/km spezifischem Widerstand)
+V.3: added further constraints for fair charging
 
-Versionsgeschichte:
-V.1: upper und lower bounds der Variables als dict für die einzelnen timesteps => dadurch entfällt die Subtarktion
-des current_timestep beim Auslesen der bounds im model, außerdem intuitiver indexieren
+V.4: this whole documentation added and doctsrings for all the (relevant) methods and some more
+explanatory comments.
 
-V.2: "intelligentes" Set occupancy_times zum Indexieren. Darin sind jetzt nur noch diejenigen timesteps enthalten,
-an denen am jeweiligen Knoten auch wirklich ein BEV steht zum Laden => dadurch kann man de if-Abfrage vor den rules
-weglassen, die prüft, ob man im Ladezeitraum des entsprechenden BEVs ist. Eventuell können so auch mehrere separate
-Ladevorgänge an einem Bus innerhalb eines Horizonts ermöglicht werden (weil ja dann die timesteps eigentlich nicht mehr
-durchgängig miteinander verbunden sind.
+all the other commits in much more detail are available here:
+https://github.com/AndreGismo/Masterarbeit/tree/submission)
 """
 
+# these variables are used to tell the class wheather the according modules are available.
 _pandapower_available = True
 _networkx_available = True
 _pandas_available = True
@@ -100,18 +105,30 @@ class GridLineOptimizer:
     global _ipopt_available
 
 
-    _OPTIONS = {'distribute loadings': False,
-                'log results': False,
-                'consider linear': True,
+    _OPTIONS = {'log results': False,
                 'fairness': 27,
                 'equal SOCs': 1,
-                'steady charging': (0, 0),
                 'atillas constraint': False,
                 'equal products': False}
 
     def __init__(self, number_buses, bevs, households, trafo_power, resolution, horizon_width=24,
                  voltages=None, line_impedances=None, line_lengths=None, line_capacities=None,
                  solver='glpk'):
+        """
+        create GridLineOptimizer
+
+        :param number_buses: number of buses in the grid line
+        :param bevs: list of BatteryElectricVehivle instances
+        :param households: list of Household instances
+        :param trafo_power: power of transformer [kW]
+        :param resolution: resolution in time [minutes]
+        :param horizon_width: width of the optimized horizon [hours]
+        :param voltages: voltages at the buses [V]
+        :param line_impedances: specific impedances of the lines [ohm*m-1]
+        :param line_lengths: length of lines [m]
+        :param line_capacities: maximum current the lines can conduct [A]
+        :param solver: solver to use (currently only 'glpk' makes sense)
+        """
         self.rolling = False
         self.current_timestep = 0
         self.resolution = resolution
@@ -127,11 +144,7 @@ class GridLineOptimizer:
         self.p_trafo = trafo_power
         self.i_max = self.p_trafo * 1000 / self.u_trafo
 
-        if type(self)._OPTIONS['consider linear']:
-            self.solver = solver
-        else:
-            self.solver = 'ipopt'
-
+        self.solver = solver
         self.solver_factory = pe.SolverFactory(self.solver)
 
         self.line_capacities = self._make_line_capacities(line_capacities)
@@ -142,9 +155,6 @@ class GridLineOptimizer:
         self._make_bev_dict(bevs)
         self._setup_bevs()
         self.households = households
-        #self._determine_charger_locs()
-        self._make_occupancy_times()
-        #self.voltages_tf = self._make_voltages_tf()
 
         self._prepare_soc_lower_bounds()
         self._prepare_soc_upper_bounds()
@@ -153,58 +163,37 @@ class GridLineOptimizer:
         self._prepare_i_lower_bounds()
         self._prepare_i_upper_bounds()
 
-        #self.optimization_model = self._setup_model()
         self._setup_model()
-        #self.grid = self._setup_grid()
 
-        # hier kommen dann die Ergebnisse für jeden Knoten zu jedem
-        # timstep der Strom rein (die SOCs werden im BEV gespeichert)
-        # wird durch store_results (welches in run_optimization_rolling_horizon
-        # aufgerufen wird) mit Werten überschrieben
+        # when using rolling horizon the results of the first timestep of each horizon
+        # are store in here
         self.results_I = {bus: [] for bus in self.bevs}
         self.results_SOC = {bus: [] for bus in self.bevs}
 
 
-    # wird nur bei dem allerersten Durchlauf der Optimierung genutzt
-    def _make_soc_lower_bounds(self):
-        soc_lower_bounds = {bev.home_bus: {t: bev.soc_start for t in self.times} for bev in self.bevs.values()}
-        for bev in self.bevs.values():
-            # dafür sorgen, dass an demjenigen Zeitpunkt, wo die geladen sein wollen t_target
-            # der gewünschte Ladestand soc_target dasteht
-            #soc_lower_bounds[bev.home_bus][bev.t_target] = bev.soc_target
-            pass
-            # und dasselbe für den zweiten Tag nochmal
-            #soc_lower_bounds[bev.home_bus][bev.t_target+int(24*60/self.resolution)] = bev.soc_target
-        self.soc_lower_bounds = soc_lower_bounds
-
-
-    # wird nur bei dem allerersten Durchlauf der Optimierung genutzt
-    def _make_soc_upper_bounds(self):
-        soc_upper_bounds = {bev.home_bus: {t: bev.soc_target for t in self.times} for bev in self.bevs.values()}
-        for bev in self.bevs.values():
-            # dafür sorgen, dass beim Startzeitpunkt die upper bound gleich der lower bound
-            # (also soc start) ist (bei anderen Startpunkten als 0 noch entsprechendes
-            # t_start in BEV einführen und hier statt 0 nutzen (geschieht schon über I, das dann immer 0 ist, wenn BEV nicht da)
-            soc_upper_bounds[bev.home_bus][0] = bev.soc_start
-            # und dasselbe für den nächste Tag
-            #soc_upper_bounds[bev.home_bus][0+int(24*60/self.resolution)] = bev.soc_start
-        self.soc_upper_bounds = soc_upper_bounds
-
-
     def _prepare_i_lower_bounds(self):
+        """
+        setup lower bounds of charging currents. They cant go below 0A.
+
+        :return: None
+        """
         i_lower_bounds = {bev.home_bus: {t: 0 for t in self.times} for bev in self.bevs.values()}
         self.i_lower_bounds = i_lower_bounds
 
 
     def _prepare_i_upper_bounds(self):
+        """
+        setup upper bounds of charging currents. They can only be greater than 0A
+        if the according BEV is at the chargin station at the according timestep.
+        They cant be greater than the charging power of the charging station
+        divided by the node voltage.
+
+        :return: None
+        """
+        # first, setup everything to be maximum
         i_upper_bounds = {bev.home_bus: {t: bev.p_load/0.4 for t in self.times} for bev in self.bevs.values()}
-        #print(i_upper_bounds)
-        # hier schon dafür sorgen, dass an denjenigen Stellen, wo das entsprechende BEV
-        # nicht an der Ladesäule steht, upper_bound zu 0 gesetzt wird
         for bev in self.bevs.values():
-            #if bev.t_start >= self.current_timestep:
-                #i_upper_bounds[bev.home_bus][bev.t_start] = 0
-            # if the current_timestep is below bev.t_start, than ...
+            # than, for each bev, set it to 0A if the bev is not at the charger at this timestep
             if self.current_timestep < bev.t_start:
                 # ... all the times before t_start there has to be 0
                 i_upper_bounds[bev.home_bus].update({t: 0 for t in self.times if t < bev.t_start})
@@ -223,65 +212,121 @@ class GridLineOptimizer:
 
 
     def _make_bev_dict(self, bevs):
+        """
+        make a nice dict out of all the BEVs, for more intuitive
+        indexing (via their home_bus)
+
+        :param bevs: list of BatteryElectricVehicles
+        :return: None
+        """
         bev_dict = {bev.home_bus: bev for bev in bevs}
+        # just in case the BEVs have been passed in a random order
+        # => sort them according to their home_bus
         self.bevs = dict(sorted(bev_dict.items()))
 
 
     def _setup_bevs(self):
+        """
+        tell each BEV the used width of the horizon in time
+
+        :return: None
+        """
         for bev in self.bevs.values():
             bev.set_horizon_width(self.horizon_width)
-            bev.make_occupancies()
+            #bev.make_occupancies()
 
 
     def _prepare_soc_lower_bounds(self):
+        """
+        setup lower bounds of the SOCs. They cant be less than the soc_start of the according BEV.
+
+        :return: None
+        """
         soc_lower_bounds = {bev.home_bus: {t: bev.soc_start for t in self.times} for bev in self.bevs.values()}
-        # for bev in self.bevs.values():
-        #     # alle werte von current_timestep
-        #     #soc_lower_bounds[bev.home_bus][bev.t_target - self.current_timestep] = bev.soc_target
-        #     #soc_lower_bounds[bev.home_bus][bev.t_target] = bev.soc_target
-        #     pass
         self.soc_lower_bounds = soc_lower_bounds
 
 
     def _prepare_soc_upper_bounds(self):
+        """
+        setup upper bounds of the socs. They must ot go higher than the desired soc_target of
+        the according BEV.
+
+        :return: None
+        """
         soc_upper_bounds = {bev.home_bus: {t: bev.soc_target for t in self.times} for bev in self.bevs.values()}
         self.soc_upper_bounds = soc_upper_bounds
 
 
     def _fix_first_socs(self):
+        """
+        make sure, that at the first considered timestep, the upper bounds equal the lower
+        bounds (soc_start of the according bev). This ensures that the BEVs really start
+        their charging with their soc_start (otherwise the optimizer would be allowed to
+        simply raise the SOC at the beginning of charging in order to allways fullfill
+        the wishes of the BEVs).
+
+        :return: None
+        """
         for bev in self.bevs.values():
             self.soc_upper_bounds[bev.home_bus][0] = bev.soc_start
 
 
     def _make_buses(self):
+        """
+        prepare buses list for indexing pyomo sets in the optimization model.
+
+        :return: the desired list
+        """
         return list(range(self.number_buses))
 
 
     def _make_lines(self):
+        """
+        prepare lines list for indexing pyomo sets in the optimization model.
+
+        :return: the desired list
+        """
         return list(range(self.number_buses))
 
 
     def _make_times(self):
+        """
+        prepare timesteps list for indexing pyomo sets in the optimization model.
+
+        :return: the desired list
+        """
         self.times = list(range(self.current_timestep, self.current_timestep+self.horizon_width*int(60/self.resolution)))
 
 
     def _make_line_capacities(self, capacities):
+        """
+        prepare line capacities dict (what current each line can conduct) for indexing
+        pyomo parameters in the optimization model.
+
+        :param capacities: list of conducting capacities (A)
+        :return: the desired dict
+        """
         if capacities == None:
             return {i: self.i_max for i in self.lines}
+
         elif type(capacities) == int or type(capacities) == float:
             return {i: capacities for i in self.lines}
+
         else:
             if not len(capacities) == len(self.lines):
                 raise ValueError("Length of gridline is {}, but {} line capacities were passed"
                                  .format(len(self.lines), len(capacities)))
-            return {i: capacities[i] for i in self.lines}
 
-    def _make_occupancy_times(self):
-        self.occupancy_times = list(itt.chain(*[[(t,b.home_bus) for t in self.times if t >= self.bevs[b.home_bus].t_start
-                                                 and t <= self.bevs[b.home_bus].t_target] for b in self.bevs.values()]))
+            return {i: capacities[i] for i in self.lines}
 
 
     def _make_voltages(self, voltages):
+        """
+        prepare node voltaged dict for indexing pyomo parameters in the optimization model.
+
+        :param voltages: list of node voltages (V)
+        :return: the desired dict
+        """
         if voltages == None:
             return {i: 400-(i+1)/2 for i in self.buses}
 
@@ -298,6 +343,12 @@ class GridLineOptimizer:
 
 
     def _make_impedances(self, impedances):
+        """
+        prepare specific line impedances dict for indexing pyomo parameters in the optimization model.
+
+        :param impedances: list of specific impedances
+        :return: the desired dict
+        """
         if impedances == None:
             return {i: 2e-4 for i in self.lines}
 
@@ -313,6 +364,12 @@ class GridLineOptimizer:
 
 
     def _make_line_lengths(self, lenghts):
+        """
+        prepare line lengths dict for indexing pyomo parameters in the optimization model.
+
+        :param lenghts: list of line lengths
+        :return: the desired dict
+        """
         if lenghts == None:
             return {i: 20 for i in self.lines}
 
@@ -328,6 +385,12 @@ class GridLineOptimizer:
 
 
     def _make_resulting_impedances(self):
+        """
+        prepare resulting impedances (=line legth*line specific impedance) dict for indexing
+        pyomo parameters in the optimization model.
+
+        :return: the desired dict
+        """
         return {num: self.line_lengths[num]*impedance for num, impedance in enumerate(self.impedances.values())}
 
 
@@ -339,10 +402,12 @@ class GridLineOptimizer:
         the next horizon ("sandwich method" to ensure energy conservation over
         multiple horizons). IMPORTANT: call it AFTER the current_timestep has
         been incremented and AFTER _prepare_soc_upper/lower_bounds have been
-        called
+        called.
+
         :return: None
         """
-        # get the socs out of the optimization model
+        # get the socs out of the optimization model (its directly at the second
+        # timestep, because current_timestep has been already incremented before
         socs_to_carry_over = [self.optimization_model.SOC[self.current_timestep,
                               bus].value for bus in self.bevs]
 
@@ -356,6 +421,20 @@ class GridLineOptimizer:
 
 
     def _prepare_next_timestep(self):
+        """
+        when using the rolling horizon, make sure some things are well prepared
+        befor start building the optimization model for the next horizon:
+        1. increment the current_timestep
+        2. build according times list for correct indexing in the next horizons
+        optimization model
+        3. prepare all the variables upper and lower bounds accordingly
+        4. for ensuring energy conservation over multiple horizos: take
+        the socs of the second timestep of the current horizon and use
+        them as upper and lower bounds ("sandwich method") for the
+        first timestep soc in the next horizon.
+
+        :return: None
+        """
         if not self.rolling:
             self.rolling = True
 
@@ -366,7 +445,6 @@ class GridLineOptimizer:
         self._prepare_soc_upper_bounds()
 
         self._carry_over_last_socs()
-        #self._update_bev_socs(SOCs2)
 
         self._prepare_i_lower_bounds()
         self._prepare_i_upper_bounds()
@@ -374,7 +452,8 @@ class GridLineOptimizer:
 
     def _update_bev_socs(self, values):
         """
-        Assigns the SOCs to the corresponding BEVs instances
+        Assigns the SOCs to the corresponding BEVs instances.
+
         :param values: List with SOCs for all the BEVs
         :return: None
         """
@@ -383,102 +462,136 @@ class GridLineOptimizer:
 
 
     def _setup_model(self):
-        # Model erzeugen
+        """
+        create optimization model for the considered time horizon.
+        1. build sets for indexing all the other components
+        2. build parameters, indexed in the according sets
+        3. build decission variables, indexed in the according sets
+        4. build restrictions, indexed in the according sets
+
+        :return: None
+        """
         model = pe.ConcreteModel('GridLineOptimization')
 
-        # Sets als Indizes erzeugen
+        # create
         model.buses = pe.Set(initialize=self.buses)
         model.lines = pe.Set(initialize=self.lines)
         model.times = pe.Set(initialize=self.times)
         model.charger_buses = pe.Set(initialize=[bev.home_bus for bev in self.bevs.values()])
-        #model.occupancy_times = pe.Set(initialize=self.occupancy_times)
 
         # create parameters
         model.impedances = pe.Param(model.lines, initialize=self.resulting_impedances)
-        if type(self)._OPTIONS['consider linear']:
-            # voltage as parameter, only if consider linear problem,
-            # otherwise voltage as decission variable few lines below
-            model.voltages = pe.Param(model.buses, initialize=self.voltages)
-        #model.voltages_tf = pe.Param(model.occupancy_times, initialize=self.voltages_tf)
+        model.voltages = pe.Param(model.buses, initialize=self.voltages)
         model.u_min = self.u_min
         model.u_trafo = self.u_trafo
         model.i_max = self.i_max
         model.line_capacities = pe.Param(model.lines, initialize=self.line_capacities)
-        model.time_costs = pe.Param(model.times, initialize={t: t for t in model.times})
 
         def get_household_currents(model, time, bus):
-            # getielt durch die Spannung an dem Knoten, weil es ja Strom sein soll
+            """
+            get  household currents, gets passed to
+            constructor of pyomo Parameter. Must not be called on its own.
+            
+            :param model:
+            :param time: 
+            :param bus: 
+            :return: household currents
+            """""
             return self.households[bus].load_profile[time] / self.voltages[bus]
 
 
         model.household_currents = pe.Param(model.times*model.buses, initialize=get_household_currents,
                                             mutable=True)
-        #print(model.household_currents[self.current_timestep, 0])
 
-        # Entscheidungsvariablen erzeugen (dafür erstmal am besten ein array (timesteps x buses)
-        # wo überall nur 50 drinsteht (oder was man dem BEV halt als coc_start übergeben hatte))
-        # erzeugen und diese Werte als lower bound ausgeben
         def get_soc_bounds(model, time, bus):
-            #return (self.soc_lower_bounds[bus][time-self.current_timestep], self.soc_upper_bounds[bus][time-self.current_timestep])
+            """
+            get upper/lower bounds for charging currents, gets passed to
+            constructor of pyomo Variable. Must not be called on its own.
+
+            :param model:
+            :param time:
+            :param bus:
+            :return: upper/lower bounds
+            """
             return (self.soc_lower_bounds[bus][time], self.soc_upper_bounds[bus][time])
 
+
         def get_i_bounds(model, time, bus):
-            #return (self.i_lower_bounds[bus][time-self.current_timestep], self.i_upper_bounds[bus][time-self.current_timestep])
+            """
+            get upper/lower bounds for SOCs, gets passed to
+            constructor of pyomo Variable. Must not be called on its own.
+
+            :param model:
+            :param time:
+            :param bus:
+            :return: upper/lower bounds
+            """
             return (self.i_lower_bounds[bus][time], self.i_upper_bounds[bus][time])
 
+
+        # create decission variables
         model.I = pe.Var(model.times*model.charger_buses, domain=pe.NonNegativeReals, bounds=get_i_bounds)
         model.SOC = pe.Var(model.times*model.charger_buses, domain=pe.PositiveReals, bounds=get_soc_bounds)
-        if not type(self)._OPTIONS['consider linear']:
-            # if not considered as linear problem, make voltages as decission variable
-            # otherwise it was allready defined as parameter few lines above
-            model.U = pe.Var(model.times*model.buses, domain=pe.PositiveReals, bounds=get_u_bounds)
 
-        # Zielfunktion erzeugen
+        # create target function
         def max_power_rule(model):
-            ts = self.current_timestep
-            te = self.current_timestep + self.horizon_width * 60/self.resolution -1
-            #return sum(sum(model.voltages[i]*model.I[j, i] for i in model.charger_buses) for j in model.times)
-            if type(self)._OPTIONS['consider linear']:
-                return sum(sum(model.I[t, b] for t in model.times) for b in model.charger_buses)
-                #return sum(model.SOC[te, b] - model.SOC[ts, b] for b in model.charger_buses)
-                #return sum(sum(model.I[t, b] * (1+self.bevs[b].waiting_times[t]/100) for t in model.times) for b in model.charger_buses)
-            else:
-                return sum(sum(model.U[t, n] * model.I[t,n] for n in model.charger_buses) for t in model.times)
-            #return sum(model.voltages_tf[t, b] * model.I[t, b] for (t, b) in model.occupancy_times)
-            #return sum(sum(model.SOC[t+1, b] - model.SOC[t, b] for b in model.charger_buses if t < len(model.times)-1) for t in model.times)
-            #return sum(sum(model.SOC[t, b] - model.SOC[model.times.prevw(t), b] for b in model.charger_buses) for t in model.times)
-            #return sum(sum(model.voltages[i] * model.I[j, i]*model.time_costs[j] for i in model.charger_buses) for j in model.times)
+            """
+            create expression for target function. Gets passed to constructor of pyomo Objective.
+            Must not be called on its own.
+
+            :param model:
+            :return: the expression
+            """
+            return sum(sum(model.I[t, b] for t in model.times) for b in model.charger_buses)
 
 
-        model.max_power = pe.Objective(rule=max_power_rule, sense=pe.maximize)
+        model.max_power = pe.Objective(rule=max_power_rule, sense=pe.maximize) # maximize the currents
 
-        # Restriktionen festlegen
+        # create restrictions
         def min_voltage_rule(model, t):
+            """
+            create expression for constraint: the voltage at the last node must not fall
+            below tolerable voltage band. Gets passed to conrtructor of pyomo Constraint.
+            Must not be caled on its own.
+
+            :param model:
+            :param t:
+            :return: the expression
+            """
+            # lambda functions just for accessing the l counter inside sum, this way we can
+            # avoid one very long expression.
             hh_currs = lambda l: sum(model.household_currents[t, n] for n in model.buses if n >= l)
             bev_currs = lambda l: sum(model.I[t, n] for n in model.charger_buses if n >= l)
+            # the actual expression, more compact
             return model.u_trafo - sum(model.impedances[l] * (hh_currs(l) + bev_currs(l))
                                        for l in model.lines) >= model.u_min
 
 
-        def calc_voltages_rule(model, t, n):
-            if n == 0:
-                return model.u_trafo - sum(model.impedances[n] * (sum(model.household_currents[t, m]
-                        for m in model.buses if m >= n) + sum(model.I[t, m] for m in model.charger_buses
-                        if m >= n)) for n in model.lines)
-            else:
-                return model.U[t, n-1] - sum(model.impedances[n] * (sum(
-                    model.household_currents[t, m] for m in model.buses if m >= n
-                ) + sum(
-                    model.I[t, m] for m in model.charger_buses if m >= n
-                )) for n in model.lines)
-
-
         def max_current_rule(model, t):
+            """
+            create expression for constraint: the sum of all currents must not exceed the
+            maximum current the transformer can conduct (P_trafo/u_0). Gets passed to constructor
+            of pyomo Constraint. Must not be caled on its own.
+
+            :param model:
+            :param t:
+            :return: the expression
+            """
             return sum(model.I[t, b] for b in model.charger_buses) +\
                    sum(model.household_currents[t, b] for b in model.buses) <= model.i_max
 
 
         def line_capacities_rule(model, t, b):
+            """
+            create expression for constraint: the sum of all currents flowing through
+            one specific line mus not exceed this lines current capacity. Gets passed
+            to constructor of pyomo Constraint. Must not be called on its own.
+
+            :param model:
+            :param t:
+            :param b:
+            :return: the expression
+            """
             fn = b # first relevant node to consider
             return sum(model.I[t, b] for b in model.charger_buses if b >= fn) + sum(
                 model.household_currents[t, b] for b in model.buses if b >= fn
@@ -486,38 +599,42 @@ class GridLineOptimizer:
 
 
         def track_socs_rule(model, t, b):
-            # schauen, dass man immer nur bis zum vorletzten timestep geht (weil es
-            # sonst kein t+1 mehr geben würde beim letzten timestep)
-            if t < self.current_timestep + self.horizon_width * int(60/self.resolution) - 1:#23:
-            #if t >= self.bevs[b].t_start and t <= self.bevs[b].t_target:
-                return (model.SOC[t, b] + model.I[t, b] * model.voltages[b] * self.resolution/60 / 1000
-                        / self.bevs[b].e_bat*100 - model.SOC[t+1, b]) == 0
+            """
+            create expression for constraint: ensure energy conservation while
+            charging. Gets passed to constructor of pyomo Constraint. Must not
+            be called on its own.
 
-            else:
-                return pe.Constraint.Skip
-
-        #TODO: schauen, dass wenn der rolling horizon so weit fortgeschritten ist, dass der Ziel-
-        # Zeitpunkt nicht mehr im aktuell betrachteten Horizont enthalten ist, dass dann dieser
-        # Constraint auch nicht mehr auftaucht (geht vielleicht schon automatisch durch t == t_target)
-        def ensure_final_soc_rule(model,  b):
-            t_end = self.bevs[b].t_target
-            if t_end - self.current_timestep > 0:
-                return sum(model.voltages[b] * model.I[t, b] for t in range(self.current_timestep, t_end))* self.resolution/60\
-                /1000 / self.bevs[b].e_bat * 100 <= (self.bevs[b].soc_target - self.bevs[b].current_soc)#self.bevs[b].soc_list[self.current_timestep-1])#- self.bevs[b].soc_start)
-            else:
-                return pe.Constraint.Skip
-
-
-        def distribute_loading_rule(model, t, b):
-            if t < self.current_timestep + self.horizon_width * 60 / self.resolution - 1:
-                return model.SOC[t+1, b] - model.SOC[t, b] <= 5 / (60/self.resolution)
+            :param model:
+            :param t:
+            :param b:  the expression
+            :return:
+            """
+            # only go till one timestep befor the final one, because otherwise, there
+            # would be no next timestep.
+            if t < self.current_timestep + self.horizon_width * int(60/self.resolution) - 1:
+                return (model.SOC[t, b] + model.I[t, b] * model.voltages[b] * self.resolution / 60 / 1000
+                        / self.bevs[b].e_bat * 100 - model.SOC[t+1, b]) == 0
 
             else:
                 return pe.Constraint.Skip
 
 
         def fair_charging_rule(model, t, b, pb):
-            #if b < np.max(model.charger_buses) + 1:
+            """
+            create expression for constraint: ensure that for all considered timesteps
+            the maximum difference between the BEVs charging currents is smaller than
+            a permittable maximum difference (determined by the option 'fairness').
+            Gets passed to constructor of pyomo Constraint. Must not be called on
+            its own.
+
+            :param model:
+            :param t:
+            :param b:
+            :param pb:
+            :return: the expression
+            """
+            # smart pairwise comparison: no need to compare BEV 2 with BEV 1, if before
+            # there has already been the comparison of BEV 1 with BEV 2 etc...
             if b > pb:
                 return model.I[t, b] - model.I[t, pb] <=\
                        type(self)._OPTIONS['fairness']
@@ -525,31 +642,29 @@ class GridLineOptimizer:
             else:
                 return pe.Constraint.Skip
 
-            #else:
-                #return pe.Constraint.Skip
 
+        def equal_socs_rule(model, j, k):
+            """
+            create expression for constraint: the target fullfillment (the amount of energy
+            a BEV is actually charged divided by the amount of energy it wishes to be charged)
+            between the BEVs must not deviate more than a maximum permittable difference
+            (determined by option 'equal socs'). Gets passed to constructor of pyomo Constraint.
+            Must not be called on its own.
 
-        def equal_socs_rule(model, b):
-            # calculate last timestep in considered horizon
-            ft = self.current_timestep + self.horizon_width * 60/self.resolution -1
-            pb = model.charger_buses.prevw(b)
-            # fraction of actually loaded energy to desired loaded energy (soc_target - soc_start)
-            # should be more or less equal for each bev
-            return (model.SOC[ft, b] - self.bevs[b].soc_start) / (self.bevs[b].soc_target - self.bevs[b].soc_start)\
-                -(model.SOC[ft, pb] - self.bevs[pb].soc_start) / (self.bevs[pb].soc_target - self.bevs[pb].soc_start)\
-                <= type(self)._OPTIONS['equal SOCs']
-
-
-        def alt_equal_socs_rule(model, j, k):
+            :param model:
+            :param j:
+            :param k:
+            :return: the expression
+            """
             if self.rolling:
-                ft_j = self.bevs[j].t_target#self.current_timestep + self.horizon_width * 60 / self.resolution - 1
+                ft_j = self.bevs[j].t_target
                 ft_k = self.bevs[k].t_target
-                #if j < np.max(model.charger_buses) + 1: #hier muss nicht die Länge, sondern das MAXIMUM in charger_buses verwendet werden!
                 if self.current_timestep < min(ft_j, ft_k):
                     if j > k:
                         fullfillment_j = (model.SOC[ft_j, j] - self.bevs[j].soc_start)/(self.bevs[j].soc_target-self.bevs[j].soc_start)
                         fullfillment_k = (model.SOC[ft_k, k] - self.bevs[k].soc_start)/(self.bevs[k].soc_target-self.bevs[k].soc_start)
                         return fullfillment_j - fullfillment_k <= type(self)._OPTIONS['equal SOCs']
+
                     else:
                         return pe.Constraint.Skip
 
@@ -562,38 +677,24 @@ class GridLineOptimizer:
                     fullfillment_j = (model.SOC[ft, j] - self.bevs[j].soc_start) / (self.bevs[j].soc_target - self.bevs[j].soc_start)
                     fullfillment_k = (model.SOC[ft, k] - self.bevs[k].soc_start) / (self.bevs[k].soc_target - self.bevs[k].soc_start)
                     return fullfillment_j - fullfillment_k <= type(self)._OPTIONS['equal SOCs']
+
                 else:
                     return pe.Constraint.Skip
 
 
-        def steady_charging_rule(model, t, b):
-            ft = self.current_timestep + self.horizon_width * 60/self.resolution -1
-            tt = type(self)._OPTIONS['steady charging'][0]
-            #if t
-            if t < ft - tt:
-                return sum(model.I[t, b] for t in model.times if t -self.current_timestep < tt)\
-                <= tt * model.I[t, b]
-
-            else:
-                return pe.Constraint.Skip
-
-
         def equal_product_rule(model, b):
             """
-            the product of bev soc_start and the amount of what they reach
-            of their intended loaded difference, should be equal for all bevs
-            => people with lower start_socs get more loaded (relative to how much
-            they want to be loaded
+            create expression for constraint: the lower the start_soc of a BEV, the higher
+            target fullfillment this BEV is allowed to get. Gets passed to constructor of
+            pyomo Constraint. Must not be called on its own.
+
             :param model:
             :param b:
-            :return:
+            :return: the expression
             """
             lb = model.charger_buses.prevw(b)
-            # last considered timestep
-            lt_b = self.bevs[b].t_target#self.current_timestep + self.horizon_width * 60/self.resolution -1
+            lt_b = self.bevs[b].t_target
             lt_lb = self.bevs[lb].t_target
-            # first considered timestep
-            #ft = self.bevs[b].t_start
             if  self.current_timestep < min(self.bevs[b].t_target, self.bevs[lb].t_target):
                 if b > 0:
                     fullfillment_b = (model.SOC[lt_b, b] - self.bevs[b].soc_start) / (self.bevs[b].soc_target - self.bevs[b].soc_start)
@@ -609,16 +710,17 @@ class GridLineOptimizer:
 
         def atillas_rule(model, b):
             """
-            function to be passed to pyomo Constructor for Constraints - not intended
-            to be called on its own.
-            :param model: model reference
-            :param b: cycles through model.charger_buses
-            :param t: cycles through model.times
-            :return: expression for constraint
+            create expression for constraint: the longer a BEV is already waiting to be charged,
+            the more it should be carged. This comes from Atilla Koese bachelor thesis and is
+            adapted to work with pyomo. Gets passed to constructor of pyomo Constraint. Must
+            not be called on its own
+
+            :param model:
+            :param b:
+            :return: the expression
             """
-            lb = model.charger_buses.prevw(b)
+            lb = model.charger_buses.prevw(b) # the prevw bus
             ct = self.current_timestep # current timestep
-            #if t >= self.bevs[b].t_start and t < self.bevs[b].t_target:
             if ct < self.bevs[b].t_target:
                 if b > 0:
                     ts_lb = self.bevs[lb].t_start
@@ -632,10 +734,7 @@ class GridLineOptimizer:
                     currents_b = sum(model.I[t, b] for t in model.times if t >= ts_b and t < tt_b)
                     dt_b = self.bevs[b].t_target - ct
                     dsoc_b = self.bevs[b].soc_target - self.bevs[b].current_soc
-                    # return sum(model.I[t, lb] for t in model.times if t >= self.bevs[lb].t_start and t < self.bevs[lb].t_target) * \
-                    #        ((self.bevs[lb].t_target - ct) / (self.bevs[lb].soc_target - self.bevs[lb].current_soc))**2 \
-                    # <= sum(model.I[t, b] for t in model.times if t >= self.bevs[lb].t_start and t < self.bevs[lb].t_target) * ((self.bevs[b].t_target - ct) / \
-                    #                                              (self.bevs[b].soc_target - self.bevs[b].current_soc))**2
+
                     return currents_lb * (dt_lb / dsoc_lb)**2 <= currents_b * (dt_b / dsoc_b)**2
 
                 else:
@@ -644,47 +743,33 @@ class GridLineOptimizer:
             else:
                 return pe.Constraint.Skip
 
-
-        if type(self)._OPTIONS['consider linear']:
-            model.min_voltage = pe.Constraint(model.times, rule=min_voltage_rule)
-
-        else:
-            model.calc_voltages = pe.Constraint(model.times*model.buses, rule=calc_voltages_rule)
-
+        # create the actual constraints
+        model.min_voltage = pe.Constraint(model.times, rule=min_voltage_rule)
         model.max_current = pe.Constraint(model.times, rule=max_current_rule)
         model.keep_line_capacities = pe.Constraint(model.times*model.lines, rule=line_capacities_rule)
         model.track_socs = pe.Constraint(model.times*model.charger_buses, rule=track_socs_rule)
-        # mit diesem Constraint kommt dasselbe raus, als hätte man nur track_socs aktiv
-        #model.ensure_final_soc = pe.Constraint(model.charger_buses, rule=ensure_final_soc_rule)
-        if type(self)._OPTIONS['distribute loadings'] == True:
-            model.distribute_loading = pe.Constraint(model.times*model.charger_buses, rule=distribute_loading_rule)
 
+        # and here the optional constraints
         if type(self)._OPTIONS['fairness'] < 27:
             model.fair_charging = pe.Constraint(model.times*model.charger_buses*model.charger_buses, rule=fair_charging_rule)
-            #model.fair_charging.pprint()
 
         if type(self)._OPTIONS['equal SOCs'] < 1:
-            model.equal_socs = pe.Constraint(model.charger_buses*model.charger_buses, rule=alt_equal_socs_rule)
-            #model.equal_socs.pprint()
+            model.equal_socs = pe.Constraint(model.charger_buses*model.charger_buses, rule=equal_socs_rule)
 
         if type(self)._OPTIONS['atillas constraint'] == True:
             model.atillas_constraint = pe.Constraint(model.charger_buses, rule=atillas_rule)
-            #model.atillas_constraint.pprint()
-
-        if type(self)._OPTIONS['steady charging'][0] > 0:
-            model.steady_charging = pe.Constraint(model.times, model.charger_buses, rule=steady_charging_rule)
 
         if type(self)._OPTIONS['equal products'] == True:
             model.equal_products = pe.Constraint(model.charger_buses, rule=equal_product_rule)
 
-        #return model
         self.optimization_model = model
 
 
     def _setup_grid(self):
         """
         create pandapower grid to check the results of optimization. Not needed anymore, because
-        the EMO is used for simulating the grid
+        the EMO is used for simulating the grid.
+
         :return: pandapower grid
         """
         if not _pandapower_available:
@@ -722,9 +807,11 @@ class GridLineOptimizer:
         """
         create an excel file called 'optimized_grid.xlsx' containing all the
         information of the optimized grid, that the EMO needs to construct a
-        pandas grid from, using LowVoltageSystem.make_system_from_excel_file
+        pandas grid from, using LowVoltageSystem.grid_from_GLO.
+
         :return: None
         """
+        # two more buses for trafo lv and mv/slack
         num_buses = 2 + self.number_buses
         # for the sheet 'Lines'
         line_no = [i for i in range(num_buses-2)]
@@ -762,20 +849,41 @@ class GridLineOptimizer:
 
 
     def export_household_profiles(self):
+        """
+        export the load profile of the households for further use in grid simulation
+        with EMO.
+
+        :return: dict of household power demand
+        """
         num_timesteps = int(self.horizon_width * 60 / self.resolution)
         return {household.home_bus: household.load_profile[0:num_timesteps] for household in self.households}
 
 
     def export_I_results(self):
+        """
+        export the results of the optimized BEV charging currents for further usage
+        in EMO grid simulation.
+
+        :return: dict of optimized BEV charging currents
+        """
         if not self.rolling:
+            # if using a fixed horizon, just get results from the optimization model
+            # Variable instances
             return {bev: [self.optimization_model.I[t, bev].value for t in self.times]
                     for bev in self.bevs.keys()}
 
         else:
+            # if using rolling horizon get the results from results_I
             return self.results_I
 
 
     def get_grid_specs(self):
+        """
+        export further specs of the grid for further usage with
+        Low_Voltage_System.grid_from_GLO.
+
+        :return: dict
+        """
         specs = {'buses': self.number_buses,
                  'S transformer': self.p_trafo,
                  'line specific impedances': self.impedances,
@@ -786,6 +894,7 @@ class GridLineOptimizer:
         return specs
 
 
+#### these can be used for debugging purposes: do the constraints look as desired? ####################
     def display_target_function(self):
         self.optimization_model.max_power.pprint()
 
@@ -805,25 +914,18 @@ class GridLineOptimizer:
     def display_track_socs_constraint(self):
         self.optimization_model.track_socs.pprint()
 
-
-    def display_ensure_final_soc_constraint(self):
-        self.optimization_model.ensure_final_soc.pprint()
+#######################################################################################################
 
 
     def log_results(self):
         """
         logs the results of the optimization to an external csv-file.
+
         :return: None
         """
         # first check, if csv already exists
         if not op.isdir('../Data/Results'):
             os.mkdir('../Data/Results')
-
-        # create dict with optimization results
-        # results = {'timestep': self.current_timestep,
-        #            'SOC [%]': [self.optimization_model.SOC[self.current_timestep, bev].value for bev in self.bevs],
-        #            'I [A]': [self.optimization_model.I[self.current_timestep, bev].value for bev in self.bevs]
-        #            }
 
         results = {f'current at node {bev}': [self.optimization_model.I[self.current_timestep+1, bev].value]
                    for bev in self.bevs}
@@ -835,45 +937,68 @@ class GridLineOptimizer:
             results.to_csv('../Data/Results/results.csv', index=False)
 
         else:
+            # if the file already exist, just append the next incoming results
             results.to_csv('../Data/Results/results.csv', index=False, header=False, mode='a')
 
 
-
-    # nach jedem Optimierungsdurchlauf die Ergebnisse aus dem Model und
-    # die SOCs in den BEVs speichern, I hier irgendwo...
     def _store_results(self):
         """
-        Fragt die Optimierungsergebnisse der Entscheidungsvariablen I und SOC aus dem
-        Optimierungsmodel ab und speichert diese.
-        :return:
+        for usage with rolling horizon: after each optimization, querry
+        the results of the first timestep in the current horizon and
+        append them to results_SOC/results_I
+
+        :return: None
         """
-        for bus in self.bevs:  # das liefert ja die home_buses
+        for bus in self.bevs:
             # Werte aus model abfragen
-            SOC = self.optimization_model.SOC[self.current_timestep, bus].value # +1 dazu
-            I = self.optimization_model.I[self.current_timestep, bus].value # +1 dazu
+            SOC = self.optimization_model.SOC[self.current_timestep, bus].value
+            I = self.optimization_model.I[self.current_timestep, bus].value
             # und in Ergebnisliste eintragen
             self.results_SOC[bus].append(SOC)
             self.results_I[bus].append(I)
 
 
-    # simuliert einen Tag mit den Werten für einen Tag, fixer Horizont
-    def run_optimization_single_timestep(self, **kwargs):
+    def run_optimization_fixed_horizon(self, **kwargs):
+        """
+        solve the optimization model for the complete considered horizon
+        in self.optimzation_model
+
+        :param kwargs: get directly passed to solver
+        :return: None
+        """
         self.solver_factory.solve(self.optimization_model, tee=kwargs['tee'])
         if type(self)._OPTIONS['log results']:
             self.log_results()
 
 
     def run_optimization_rolling_horizon(self, complete_horizon, **kwargs):
+        """
+        solve multiple optimization models for each mini-horizon in the complete
+        considered horizon (and prepare the optimization model for the next
+        horizon accordingly)
+        1. run the optimization for the current horizon
+        2. grab the results from the optimization model
+        3. prepare everything for the next timestep
+
+        :param complete_horizon: complete considered horizon [h]
+        :param kwargs: get directly passed to solver
+        :return: None
+        """
         steps = int(complete_horizon * 60/self.resolution)
         for i in range(steps):
             print(i)
-            self.run_optimization_single_timestep(tee=kwargs['tee'])
+            self.run_optimization_fixed_horizon(tee=kwargs['tee'])
             self._store_results()
-            self._prepare_next_timestep()#=kwargs['update_bevs'])
+            self._prepare_next_timestep()
             self._setup_model()
 
 
     def plot_grid(self):
+        """
+        gimmick (and needs networkx): plot the grid
+
+        :return: None
+        """
         if not _networkx_available:
             print('\nWARNING: unable to plot grid\n')
 
@@ -1075,22 +1200,39 @@ class GridLineOptimizer:
 
 
     def _get_socs_fullfillment(self, optimized):
+        """
+        get SOC fullfillment (how much the BEVs have been charged in relation to how
+        much they wished to be charged).
+
+        :param optimized: wheather or not a optimization was used
+        :return: dict of SOC fullfillments
+        """
         final_timestep = self.horizon_width * int(60 / self.resolution) - 1
         if optimized:
+            # check if rolling horizon was used
             if not self.rolling:
+                # if not, calculate from optimization model Variable instances
                 final_socs = {bev: [(self.optimization_model.SOC[final_timestep, bev].value - self.bevs[bev].soc_start) / (self.bevs[bev].soc_target - self.bevs[bev].soc_start) * 100] for bev in self.bevs}
                 return final_socs
 
             else:
+                # if yes, calculate from BEVs currents_soc
                 final_socs = {bev.home_bus: [(bev.current_soc - bev.soc_start) / (bev.soc_target - bev.soc_start) * 100] for bev in self.bevs.values()}
                 return final_socs
 
         else:
+            # if no optimization was used, calculate from BEV current_soc
             final_socs = {bev.home_bus: [(bev.current_soc - bev.soc_start) / (bev.soc_target - bev.soc_start) * 100] for bev in self.bevs.values()}
             return final_socs
 
 
     def export_socs_fullfillment(self, optimized=True):
+        """
+        Export SOC fullfillments as .dat file.
+
+        :param optimized: gets directly passed to _get_soc_fullfillments
+        :return: None
+        """
         final_socs = self._get_socs_fullfillment(optimized)
         final_socs = pd.DataFrame(final_socs).T
         final_socs.index += 1
@@ -1140,12 +1282,28 @@ class GridLineOptimizer:
 
 
     def export_current_I_results(self, width):
+        """
+        for usage in parallel operation with EMO: export results of optimized
+        BEV charging currents of the first n timesteps.
+
+        :param width: number of timesteps to consider for export
+        :return: dict of optimized BEV charging currents
+        """
         ts = self.current_timestep
         return {node: [self.optimization_model.I[time, node].value for time in range(ts, ts+width)] for node in self.bevs}
 
 
     @classmethod
     def set_options(cls, key, value):
+        """
+        override class options to determine how the optimization model
+        is going to look (activate aditional constraints or logging of
+        data).
+
+        :param key: option name
+        :param value: option value
+        :return: None
+        """
         cls._OPTIONS[key] = value
 
 

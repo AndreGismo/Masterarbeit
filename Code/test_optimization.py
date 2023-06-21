@@ -1,12 +1,19 @@
 """
 Author: André Ulrich
 --------------------
-Den GridLineOptimizer testen
+testcase for optimization with GridLineOptimizer and validation of results
+with grid simulation with EMO.
 
-Versionsgeschichte:
-V.1: jetzt kann unterschieden werden, ob man mit oder ohne rolling horizon optimieren möchte
+Uses all the functionalities of GridLineOptimizer and EMOs Simulation_Handler.
 
-V.2:
+Version history (only the most relevant points, full history is available on github):
+-------------------------------------------------------------------------------------------------
+V.1: first working test case formulated
+
+V.2: some switches at beginning to select what exactly to do
+
+all the other commits in much more detail are available here:
+https://github.com/AndreGismo/Masterarbeit/tree/submission)
 """
 import random
 
@@ -18,17 +25,12 @@ from EMO import *
 import matplotlib.pyplot as plt
 import numpy as np
 
-ROLLING = False
-random_wishes = True
+ROLLING = False # use rolling horizon instead of one fixed horizon for optimization
+random_wishes = True # random generated customer wishes (usefull, when using lost of BEVs)
 use_emo = True # run EMO simulation to verify the optimization results
 emo_unoptimized = False # run EMO sinulation without optimization (BEVs charge according to P(SOC) curve) but P(U) controling
 emo_uncontrolled = False # run EMO simulation without optimization and without controlling
 
-# update_bevs = True
-#
-# if use_emo and (emo_unoptimized or emo_uncontrolled):
-#     update_bevs = False
-#     print('rolling darf bevs nicht updaten')
 
 #========================================================
 # define scenario
@@ -111,8 +113,8 @@ for bus in bus_lst:
 #==== choose additional setup for optimizer =================================================
 #GLO.set_options('log results', True)
 #GLO.set_options('fairness', 0)
-#GLO.set_options('equal SOCs', 0)
-GLO.set_options('equal products', True)
+GLO.set_options('equal SOCs', 0)
+#GLO.set_options('equal products', True)
 #GLO.set_options('atillas constraint', True)
 
 #==== create optimizer instance =============================================================
@@ -125,8 +127,9 @@ test = GLO(number_buses=buses, bevs=bev_list, resolution=resolution, trafo_power
 
 #==== standalone optimization ==============================================================
 if not ROLLING:
-    test.run_optimization_single_timestep(tee=True)
+    test.run_optimization_fixed_horizon(tee=True)
     test.optimization_model.SOC.pprint()
+    # print results, use export_date=True to export results
     test.plot_all_results(marker=None, save=False, usetex=False, compact_x=True, export_data=True)
     #test.plot_I_results(marker=None, save=True, usetex=True, compact_x=True)
     #test.plot_SOC_results(marker=None, save=True, usetex=True, compact_x=True)
@@ -137,7 +140,7 @@ else:
     test.plot_all_results(marker=None, save=False, usetex=False, compact_x=True, export_data=True)
     test.export_socs_fullfillment()
 
-if use_emo: # falls Rolling, dann sind ja schon die SOCs der BEVs angepasst woreden => müssen wieder auf SOC_start gesetzt werden
+if use_emo:
 #==== optimization + validation of results by using emo simulation: first prepare the data
 # of the optimizer to be communicated to the emo-objects =====================================
     grid_excel_file = 'optimized_grid'
@@ -178,41 +181,6 @@ if use_emo: # falls Rolling, dann sind ja schon die SOCs der BEVs angepasst wore
 
     sim_handler_1.export_sim_results('trafo', res_min=resolution)
     sim_handler_1.export_sim_results('buses', res_min=resolution)
-
-
-# if ROLLING == True:
-#     test.run_optimization_rolling_horizon(24, tee=False)
-#     for key in test.results_I:
-#         print(test.results_I[key])
-#
-#     for i in home_buses:#range(len(bev_lst)):
-#         plt.plot(range(len(test.results_I[i])), test.results_SOC[i])#, marker='o')
-#     plt.show()
-#
-#     for i in home_buses:#range(len(bev_lst)):
-#         plt.plot(range(len(test.results_I[i])), test.results_I[i], label=f'Current to BEV at node {i}')#, marker='o')
-#     plt.legend()
-#     plt.show()
-#
-#     for bev in bev_list:
-#         print(f'Verlauf der SOCs des BEV an Knoten {bev.home_bus}', bev.soc_list, '\n')
-#
-#
-# if ROLLING == 'experimental':
-#     res_ges = []
-#     for t in range(int(24*60/resolution)):
-#         print(t)
-#         test.run_optimization_single_timestep(tee=False)
-#         test._store_results()
-#         res = test.export_I_results()
-#         res_ges.append(res)
-#         test._prepare_next_timestep()
-#         test._setup_model()
-#
-#     for item in res_ges:
-#         for key in item:
-#             print(item[key])
-#         print('############################################')
 
 
 

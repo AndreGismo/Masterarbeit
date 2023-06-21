@@ -1,6 +1,19 @@
 """
 Author: André Ulrich
-Test parallelization of GLO and EMO
+--------------------
+Test parallelization of optimization (GridLineOptimizer) and grid simulation (EMO).
+Optimization is running in own separate process and sends the results of optimized
+BEV charging currents (only the ones of the current timestep) through a queue
+to the EMO where an according grid silation is run.
+
+Version history (only the most relevant points, full history is available on github):
+-------------------------------------------------------------------------------------------------
+V.1: first working parallelization approach
+
+V.2: separate thread for reading new results from queue
+
+all the other commits in much more detail are available here:
+https://github.com/AndreGismo/Masterarbeit/tree/submission)
 """
 import os
 
@@ -85,19 +98,15 @@ def func_opt(tee, marker, queue):
     global t_counter
     for t in range(t_steps):
         print('optimization round', t, 'running in process', pid)
-        test.run_optimization_single_timestep(tee=tee)
+        test.run_optimization_fixed_horizon(tee=tee)
         I_res = test.export_current_I_results(1)
-        #print(I_res)
-        queue.put(I_res) # vielleicht ohne block?
+        queue.put(I_res)
         test._store_results()
-        test._prepare_next_timestep(update_bevs=True)
+        test._prepare_next_timestep()
         test._setup_model()
-        #t_counter += 1 # is ja eigener Prozess, sieht die global t_counter von main gar nicht!
         time.sleep(0.75)
 
     queue.put('done')
-
-    #test.plot_results(marker=marker)
 
 
 def func_sim(queue):
@@ -112,7 +121,7 @@ def func_sim(queue):
             res_I = queue.get()
 
     # first run optimization for first timestep to have results
-    test.run_optimization_single_timestep(tee=False)
+    test.run_optimization_fixed_horizon(tee=False)
     res_I = test.export_current_I_results(1)
 
     last_I_res = res_I
@@ -122,36 +131,29 @@ def func_sim(queue):
     while True:
         if res_I == last_I_res:
             print('no new results, will continue with the old one')
+
         else:
             print('received new results!')
             last_I_res = res_I
-            #t_counter += 1
-            #print(t_counter)
 
         if res_I == 'done':
             break
 
         # run simulation with only the results for the first timestep
-        sim_handler_1.run_GLO_sim(hh_data, res_I, parallel=True)#, timesteps=1, parallel=True)# timesteps=2
-        print('Länge der Ergebnisse (sollte am Ende 96 sein):', len(sim_handler_1.res_GLO_sim_trafo))
+        sim_handler_1.run_GLO_sim(hh_data, res_I, parallel=True)
         time.sleep(0.75)
-        #sim_handler_1.plot_EMO_sim_results(resolution, element='buses')
-        #sim_handler_1.plot_EMO_sim_results(freq=resolution, element='lines')
-        #sim_handler_1.plot_EMO_sim_results(freq=resolution, element='trafo')
-        #plt.show()
-
 
 
 if __name__ == '__main__':
+    # create and start the process
     p_opt = mp.Process(target=func_opt, kwargs={'tee': False, 'marker': 'x', 'queue': queue}, daemon=True)
     p_opt.start()
+    # .. and start parallel execution
     func_sim(queue)
 
     p_opt.join()
     print('done!')
-    # hier müsste jetzt eigentlich nur vom letzten timestep die Ergebnisse der simulation
-    # drin sein => noch Methode, die nach jedem Simulationsdurchlauf die Ergebnisse vom
-    # jeweils ersten timestep abfragt und speichert
+
     for i in range(6):
         plt.plot(range(len(sim_handler_1.res_GLO_sim_trafo)), sim_handler_1.res_GLO_sim_U[i])
     plt.show()

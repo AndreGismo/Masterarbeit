@@ -1,16 +1,40 @@
 """
-Haushalts-Klasse in der die Informationen zu den Lastprofilen der Haushalte steckt
+Author: André Ulrich
+--------------------
+Class for simulating households
+
+Usage: Just create them and pass them to the constructor of GridLineOptimizer.
+With raise_demand the load profile can be altered to simulate additional loads.
+
+Version history (only the most relevant points, full history is available on github):
+-------------------------------------------------------------------------------------------------
+V.1: first working description of a household
+
+V.2: fixed the resampling: compute mean or interpolate, depending on asked resolution
+
+all the other commits in much more detail are available here:
+https://github.com/AndreGismo/Masterarbeit/tree/submission)
 """
 import pandas as pd
 import matplotlib.pyplot as plt
 
 class Household:
+    """
+    class to simulate household load profiles
+    """
     _data_source = '../Data/Nuernberg_SLP.csv'
     _e_norm = 3000  # kWh jährlicher Verbrauch
     _res_norm = '15min'  # min Auflösung
     _len_norm = 35040
 
     def __init__(self, home_bus, annual_demand=3000, resolution=15):
+        """
+        create household
+
+        :param home_bus: bus of the grid line (including 0) where the household is attached
+        :param annual_demand: annual energy demand (kWh) for scaling the load profile
+        :param resolution: resolution in time (minutes) for the load profile
+        """
         self.home_bus = home_bus
         self.annual_demand = annual_demand
         self.resolution = str(resolution)+'min'
@@ -19,17 +43,25 @@ class Household:
 
 
     def calc_load_profile(self):
+        """
+        calculate the load profile from the data source .csv file and scale according to
+        annual demand. Resample the data if needed.
+
+        :return: None
+        """
         self.load_profile = pd.read_csv(type(self)._data_source)
+        # scale according to annual demand
         self.load_profile *= self.annual_demand/type(self)._e_norm
+        # datetime index for easy calculation of mean/interpolate
         self.load_profile.index = pd.date_range('2021', periods=type(self)._len_norm, freq=type(self)._res_norm)
         asked_res = int(self.resolution.rstrip('min'))
         nom_res = int(type(self)._res_norm.rstrip('min'))
 
-        # wenn die gewünschte Auflösung eine andere ist als die gegebene, dann resamplen
-        # wenn größer, dann Mittelwerte aggregieren
+        # calculate mean if the asked res is greater than nominal resolution
         if asked_res >= nom_res:
             self.load_profile = self.load_profile.resample(self.resolution).mean()
 
+        # calculate interpolated points if the asked res is smaller than nominal resolution
         else:
             self.load_profile = self.load_profile.resample(self.resolution).interpolate()
 
@@ -37,17 +69,31 @@ class Household:
 
 
     def plot_load_profile(self):
+        """
+        gimmick, to see how the altered profile looks like.
+
+        :return: None
+        """
         plt.plot(list(range(len(self.load_profile))), self.load_profile)
         plt.show()
 
 
     def raise_demand(self, start, end, demand, recurring=None):
+        """
+        alter the load profile of the household.
+
+        :param start: start time of additional load
+        :param end: end time of additional load
+        :param demand: amount of additional load (kW), negative values lower the demand
+        :param recurring: wheather the altered timerange should be repeated
+        :return:
+        """
         if recurring == 'daily':
             cycles = 364
-            offset = int(24 * 60/int(self.resolution.rstrip('min')))
+            offset = int(24 * 60/int(self.resolution.rstrip('min'))) # 24 hrs/day
         elif recurring == 'weekly':
             cycles = 51
-            offset = int(168 * 60/int(self.resolution.rstrip('min')))
+            offset = int(168 * 60/int(self.resolution.rstrip('min'))) # 168 hrs/week
 
         start = int(start * 60/int(self.resolution.rstrip('min')))
         end = int(end * 60/int(self.resolution.rstrip('min')))
@@ -57,6 +103,7 @@ class Household:
 
         else:
             for cycle in range(cycles):
+                # change at multiple time intervals
                 self.load_profile[int(start+cycle*offset):int(end+cycle*offset)] += demand
 
 
