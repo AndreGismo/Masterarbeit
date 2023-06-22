@@ -67,6 +67,7 @@ except ModuleNotFoundError:
     _pandapower_available = False
 
 try:
+    import matplotlib.animation
     import matplotlib.pyplot as plt
     import matplotlib.dates as mdates
 
@@ -140,7 +141,7 @@ class GridLineOptimizer:
         self.voltages = self._make_voltages(voltages)
 
         self.u_trafo = 400
-        self.u_min = 0.91 * self.u_trafo
+        self.u_min = 0.91 * self.u_trafo #0.945
         self.p_trafo = trafo_power
         self.i_max = self.p_trafo * 1000 / self.u_trafo
 
@@ -1305,6 +1306,56 @@ class GridLineOptimizer:
         :return: None
         """
         cls._OPTIONS[key] = value
+
+
+    def get_results(self, i):
+        # function getting called inside the animation. For each call,
+        # build and solve the optimization model for the current horizon
+        # and return results for first timestep in the horizon
+        self.run_optimization_fixed_horizon(tee=False)
+        self._store_results()
+        self._prepare_next_timestep()
+        self._setup_model()
+        return {bev: self.results_SOC[bev][i] for bev in self.bevs}
+
+
+    def animate(self, i, ax, x, ys):
+        # first get results (values for first timestep of the current
+        # horizon
+        res = self.get_results(i)
+        x.append(i)
+        # for each charger append i to its xdata and optimisation result to
+        # its ydata (probably better to directly issue plot() here, to
+        # prevent error '... must return artists'
+        for num, bev in enumerate(self.bevs):
+            ys[num].append(res[bev])
+            ax.plot(x, ys[num])
+
+        return ax.lines
+
+
+    def plot_live(self):
+        # in this function solve subsequentially each horizon and after
+        # solution of each horizon plot the data for the fist timestep in the
+        # horizon
+        fig, ax = plt.subplots()
+        ax.set_ylim([0, 110])
+        ax.set_xlim([0, 60/self.resolution * self.horizon_width])
+        x = []
+        ys = [[] for _ in self.bevs]
+        # a line for course of soc over time for each charger
+        #lines = {bev: None for bev in self.bevs}
+        #for bev in self.bevs:
+            #line, = ax.plot(x, ys)
+            #lines[bev.home_bus] = line
+
+        anim = matplotlib.animation.FuncAnimation(
+            fig, self.animate, interval=0, fargs=(ax, x, ys), blit=True
+        )
+
+        plt.show()
+
+
 
 
 
