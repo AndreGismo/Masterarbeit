@@ -1334,6 +1334,12 @@ class GridLineOptimizer:
         return ax.lines
 
 
+    def dyn_gen(self):
+        steps = self.horizon_width * 60 / self.resolution
+        while self.current_timestep < steps:
+            yield self.current_timestep
+
+
     def plot_live(self):
         # in this function solve subsequentially each horizon and after
         # solution of each horizon plot the data for the fist timestep in the
@@ -1350,7 +1356,8 @@ class GridLineOptimizer:
             #lines[bev.home_bus] = line
 
         anim = matplotlib.animation.FuncAnimation(
-            fig, self.animate, interval=0, fargs=(ax, x, ys), blit=True
+            fig, self.animate, interval=0, fargs=(ax, x, ys), blit=True,
+            frames=self.dyn_gen(), repeat=False
         )
 
         plt.show()
