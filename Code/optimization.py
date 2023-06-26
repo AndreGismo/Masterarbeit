@@ -878,6 +878,21 @@ class GridLineOptimizer:
             return self.results_I
 
 
+    def get_SOC_results(self):
+        """
+        get the results of SOCs of all EVs for the current horizon
+        :param self:
+        :return: dict of EV SOCs
+        """
+        return {
+            bev: [
+                self.optimization_model.SOC[t, bev].value
+                for t in self.times
+            ]
+            for bev in self.bevs
+        }
+
+
     def get_grid_specs(self):
         """
         export further specs of the grid for further usage with
@@ -1313,23 +1328,40 @@ class GridLineOptimizer:
         # build and solve the optimization model for the current horizon
         # and return results for first timestep in the horizon
         self.run_optimization_fixed_horizon(tee=False)
+        pred = {
+            bev: [self.optimization_model.SOC[t, bev].value
+                  for t in self.times]
+            for bev in self.bevs
+        }
         self._store_results()
         self._prepare_next_timestep()
         self._setup_model()
-        return {bev: self.results_SOC[bev][i] for bev in self.bevs}
+        return {bev: self.results_SOC[bev][i] for bev in self.bevs}, pred
 
 
     def animate(self, i, ax, x, ys):
         # first get results (values for first timestep of the current
         # horizon
-        res = self.get_results(i)
+        res, pred = self.get_results(i)
         x.append(i)
-        # for each charger append i to its xdata and optimisation result to
-        # its ydata (probably better to directly issue plot() here, to
-        # prevent error '... must return artists'
+        # y prediction
+        #y_pred = self.get_SOC_results()#[self.export_I_results()[bus] for bus in self.bevs]
+        print(pred[0])
+        x_pred = [i for i in range(self.current_timestep, int(self.current_timestep+self.horizon_width*60/self.resolution))]
+        # after the first run (i>0) remove the predictions of the last run
+        # (to not get a completely filled plot (in case predictions might
+        # change)).
+        if i > 0:
+            for _ in range(len(self.bevs)):
+                ax.lines.pop()
+
         for num, bev in enumerate(self.bevs):
             ys[num].append(res[bev])
             ax.plot(x, ys[num])
+
+        # add the lines for the prediction of remaining horizon
+        for bev in self.bevs:
+            ax.plot(x_pred, pred[bev][:], color='gray', marker='o')
 
         return ax.lines
 
@@ -1344,9 +1376,13 @@ class GridLineOptimizer:
         # in this function solve subsequentially each horizon and after
         # solution of each horizon plot the data for the fist timestep in the
         # horizon
-        fig, ax = plt.subplots()
+        fig, ax = plt.subplots(figsize=(15,6))
         ax.set_ylim([0, 110])
-        ax.set_xlim([0, 60/self.resolution * self.horizon_width])
+        ax.set_xlim([0, (60/self.resolution * self.horizon_width)*2])
+        ax.set_xlabel('Zeitschritt')
+        ax.set_ylabel('SOC [%]')
+        ax.grid()
+        ax.plot([96,96], [0, 110])
         x = []
         ys = [[] for _ in self.bevs]
         # a line for course of soc over time for each charger
@@ -1357,7 +1393,7 @@ class GridLineOptimizer:
 
         anim = matplotlib.animation.FuncAnimation(
             fig, self.animate, interval=0, fargs=(ax, x, ys), blit=True,
-            frames=self.dyn_gen(), repeat=False
+            frames=self.dyn_gen, repeat=False
         )
 
         plt.show()
