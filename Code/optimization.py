@@ -1361,7 +1361,7 @@ class GridLineOptimizer:
 
         # add the lines for the prediction of remaining horizon
         for bev in self.bevs:
-            ax.plot(x_pred, pred[bev][:], color='gray', marker='o')
+            ax.plot(x_pred, pred[bev][:], color='gray')
 
         return ax.lines
 
@@ -1372,7 +1372,7 @@ class GridLineOptimizer:
             yield self.current_timestep
 
 
-    def plot_live(self):
+    def plot_live(self, sudden_load=False):
         # in this function solve subsequentially each horizon and after
         # solution of each horizon plot the data for the fist timestep in the
         # horizon
@@ -1397,6 +1397,71 @@ class GridLineOptimizer:
         )
 
         plt.show()
+
+
+    def add_sudden_load(self, start, end, loads_at_buses=None):
+        self.sudden_load = SuddenLoad(self, start, end, loads_at_buses)
+
+
+
+class SuddenLoad:
+    """
+    to add sudden loads while running the optimization in rolling horizon.
+    Choose in which horizon and at which timesteps there will be which
+    additinal load at which bus
+    """
+    def __init__(
+            self,
+            glo_object,
+            first_horizon,
+            last_horizon,
+            loads_at_buses=None
+    ):
+        self.glo_object = glo_object
+        self.first_horizon = first_horizon
+        self.last_horizon = last_horizon
+        self.loads_at_buses = loads_at_buses
+        self.prepare_loads_at_buses()
+        self.check_sanity()
+
+
+    def __print__(self):
+        return(
+            f'Sudden Load effective from timestep {self.first_horizon} '
+            f'till timestep {self.last_horizon}.'
+        )
+
+
+    def check_sanity(self):
+        glo_buses = self.glo_object.buses
+        specified_buses = [bus for bus in self.loads_at_buses]
+        if not set(specified_buses).issubset(glo_buses):
+            raise ValueError(
+                'Specified buses not available in '
+                'specified GridLineOptimizer object.'
+            )
+
+
+    def prepare_loads_at_buses(self):
+        if self.loads_at_buses != None:
+            pass
+
+        else:
+            self.loads_at_buses = {
+                bus: 0 for bus in self.glo_object.buses
+            }
+
+
+    def set_load_at_all_buses(self, load):
+        """
+        sets the same load for all present buses
+
+        :param load: load (kW) to be set
+        :return: None
+        """
+        self.loads_at_buses.update(
+            {bus: load for bus in self.loads_at_buses}
+        )
 
 
 
