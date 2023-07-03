@@ -67,6 +67,7 @@ except ModuleNotFoundError:
     _pandapower_available = False
 
 try:
+    import matplotlib.animation
     import matplotlib.pyplot as plt
     import matplotlib.dates as mdates
 
@@ -140,7 +141,7 @@ class GridLineOptimizer:
         self.voltages = self._make_voltages(voltages)
 
         self.u_trafo = 400
-        self.u_min = 0.91 * self.u_trafo
+        self.u_min = 0.91 * self.u_trafo #0.945
         self.p_trafo = trafo_power
         self.i_max = self.p_trafo * 1000 / self.u_trafo
 
@@ -877,6 +878,21 @@ class GridLineOptimizer:
             return self.results_I
 
 
+    def get_SOC_results(self):
+        """
+        get the results of SOCs of all EVs for the current horizon
+        :param self:
+        :return: dict of EV SOCs
+        """
+        return {
+            bev: [
+                self.optimization_model.SOC[t, bev].value
+                for t in self.times
+            ]
+            for bev in self.bevs
+        }
+
+
     def get_grid_specs(self):
         """
         export further specs of the grid for further usage with
@@ -1305,6 +1321,84 @@ class GridLineOptimizer:
         :return: None
         """
         cls._OPTIONS[key] = value
+
+
+    def get_results(self, i):
+        # function getting called inside the animation. For each call,
+        # build and solve the optimization model for the current horizon
+        # and return results for first timestep in the horizon
+        self.run_optimization_fixed_horizon(tee=False)
+        pred = {
+            bev: [self.optimization_model.SOC[t, bev].value
+                  for t in self.times]
+            for bev in self.bevs
+        }
+        self._store_results()
+        self._prepare_next_timestep()
+        self._setup_model()
+        return {bev: self.results_SOC[bev][i] for bev in self.bevs}, pred
+
+
+    def animate(self, i, ax, x, ys):
+        # first get results (values for first timestep of the current
+        # horizon
+        res, pred = self.get_results(i)
+        x.append(i)
+        # y prediction
+        #y_pred = self.get_SOC_results()#[self.export_I_results()[bus] for bus in self.bevs]
+        print(pred[0])
+        x_pred = [i for i in range(self.current_timestep, int(self.current_timestep+self.horizon_width*60/self.resolution))]
+        # after the first run (i>0) remove the predictions of the last run
+        # (to not get a completely filled plot (in case predictions might
+        # change)).
+        if i > 0:
+            for _ in range(len(self.bevs)):
+                ax.lines.pop()
+
+        for num, bev in enumerate(self.bevs):
+            ys[num].append(res[bev])
+            ax.plot(x, ys[num])
+
+        # add the lines for the prediction of remaining horizon
+        for bev in self.bevs:
+            ax.plot(x_pred, pred[bev][:], color='gray', marker='o')
+
+        return ax.lines
+
+
+    def dyn_gen(self):
+        steps = self.horizon_width * 60 / self.resolution
+        while self.current_timestep < steps:
+            yield self.current_timestep
+
+
+    def plot_live(self):
+        # in this function solve subsequentially each horizon and after
+        # solution of each horizon plot the data for the fist timestep in the
+        # horizon
+        fig, ax = plt.subplots(figsize=(15,6))
+        ax.set_ylim([0, 110])
+        ax.set_xlim([0, (60/self.resolution * self.horizon_width)*2])
+        ax.set_xlabel('Zeitschritt')
+        ax.set_ylabel('SOC [%]')
+        ax.grid()
+        ax.plot([96,96], [0, 110])
+        x = []
+        ys = [[] for _ in self.bevs]
+        # a line for course of soc over time for each charger
+        #lines = {bev: None for bev in self.bevs}
+        #for bev in self.bevs:
+            #line, = ax.plot(x, ys)
+            #lines[bev.home_bus] = line
+
+        anim = matplotlib.animation.FuncAnimation(
+            fig, self.animate, interval=0, fargs=(ax, x, ys), blit=True,
+            frames=self.dyn_gen, repeat=False
+        )
+
+        plt.show()
+
+
 
 
 
