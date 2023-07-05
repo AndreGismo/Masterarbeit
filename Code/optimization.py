@@ -171,6 +171,8 @@ class GridLineOptimizer:
         self.results_I = {bus: [] for bus in self.bevs}
         self.results_SOC = {bus: [] for bus in self.bevs}
 
+        self.sudden_load = None
+
 
     def _prepare_i_lower_bounds(self):
         """
@@ -848,7 +850,8 @@ class GridLineOptimizer:
             lines_df.to_excel(writer, sheet_name='Lines', index=False)
             buses_df.to_excel(writer, sheet_name='Busses', index=False)
 
-
+    # TODO: muss auch die Lasten von SuddenLoad mit berücksichtigen (die fehlen
+    # da bisher
     def export_household_profiles(self):
         """
         export the load profile of the households for further use in grid simulation
@@ -1327,6 +1330,7 @@ class GridLineOptimizer:
         # function getting called inside the animation. For each call,
         # build and solve the optimization model for the current horizon
         # and return results for first timestep in the horizon
+        #if self.sudden_load == None:
         self.run_optimization_fixed_horizon(tee=False)
         pred = {
             bev: [self.optimization_model.SOC[t, bev].value
@@ -1336,7 +1340,23 @@ class GridLineOptimizer:
         self._store_results()
         self._prepare_next_timestep()
         self._setup_model()
+        if self.sudden_load != None:
+            self.sudden_load.effect_loads()
+
         return {bev: self.results_SOC[bev][i] for bev in self.bevs}, pred
+
+        # else:
+        #     self.run_optimization_fixed_horizon(tee=False)
+        #     pred = {
+        #         bev: [self.optimization_model.SOC[t, bev].value
+        #               for t in self.times]
+        #         for bev in self.bevs
+        #     }
+        #     self._store_results()
+        #     self._prepare_next_timestep()
+        #     self._setup_model()
+        #     self.sudden_load.effect_loads()
+        #     return {bev: self.results_SOC[bev][i] for bev in self.bevs}, pred
 
 
     def animate(self, i, ax, x, ys):
@@ -1346,7 +1366,7 @@ class GridLineOptimizer:
         x.append(i)
         # y prediction
         #y_pred = self.get_SOC_results()#[self.export_I_results()[bus] for bus in self.bevs]
-        print(pred[0])
+        #print(pred[0])
         x_pred = [i for i in range(self.current_timestep, int(self.current_timestep+self.horizon_width*60/self.resolution))]
         # after the first run (i>0) remove the predictions of the last run
         # (to not get a completely filled plot (in case predictions might
@@ -1401,6 +1421,7 @@ class GridLineOptimizer:
 
     def add_sudden_load(self, start, end, loads_at_buses=None):
         self.sudden_load = SuddenLoad(self, start, end, loads_at_buses)
+        return self.sudden_load
 
 
 
@@ -1456,12 +1477,21 @@ class SuddenLoad:
         """
         sets the same load for all present buses
 
-        :param load: load (kW) to be set
+        :param load: load (W) to be set
         :return: None
         """
         self.loads_at_buses.update(
-            {bus: load for bus in self.loads_at_buses}
+            {bus: load for bus in self.glo_object.buses}
         )
+
+
+    def effect_loads(self):
+        if self.glo_object.current_timestep >= self.first_horizon \
+            and self.glo_object.current_timestep < self.last_horizon:
+            for bus, load in self.loads_at_buses.items():
+                self.glo_object.optimization_model.household_currents[
+                    self.glo_object.current_timestep, bus
+                ] += load / self.glo_object.voltages[bus] # geteilt durch die (angenommene) Spannung an dem Knoten
 
 
 
