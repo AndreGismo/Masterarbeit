@@ -138,6 +138,7 @@ class GridLineOptimizer:
         self.buses = self._make_buses()
         self.lines = self._make_lines()
         self._make_times()
+        self._make_incentive()
         self.voltages = self._make_voltages(voltages)
 
         self.u_trafo = 400
@@ -301,6 +302,11 @@ class GridLineOptimizer:
         self.times = list(range(self.current_timestep, self.current_timestep+self.horizon_width*int(60/self.resolution)))
 
 
+    def _make_incentive(self):
+        incentive = [t for t in reversed(self.times)]
+        self.incentive = dict(zip(self.times, incentive))
+
+
     def _make_line_capacities(self, capacities):
         """
         prepare line capacities dict (what current each line can conduct) for indexing
@@ -443,6 +449,7 @@ class GridLineOptimizer:
 
         self.current_timestep += 1
         self._make_times()
+        self._make_incentive()
 
         self._prepare_soc_lower_bounds()
         self._prepare_soc_upper_bounds()
@@ -489,6 +496,9 @@ class GridLineOptimizer:
         model.u_trafo = self.u_trafo
         model.i_max = self.i_max
         model.line_capacities = pe.Param(model.lines, initialize=self.line_capacities)
+
+        # incentivize for starting to charge earlier
+        model.incentive = pe.Param(model.times, initialize=self.incentive, within=pe.Integers)
 
         def get_household_currents(model, time, bus):
             """
@@ -545,7 +555,7 @@ class GridLineOptimizer:
             :param model:
             :return: the expression
             """
-            return sum(sum(model.I[t, b] for t in model.times) for b in model.charger_buses)
+            return sum(sum(model.I[t, b] * model.incentive[t] for t in model.times) for b in model.charger_buses)
 
 
         model.max_power = pe.Objective(rule=max_power_rule, sense=pe.maximize) # maximize the currents
