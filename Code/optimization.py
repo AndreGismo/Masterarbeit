@@ -114,7 +114,7 @@ class GridLineOptimizer:
 
     def __init__(self, number_buses, bevs, households, trafo_power, resolution, horizon_width=24,
                  voltages=None, line_impedances=None, line_lengths=None, line_capacities=None,
-                 solver='glpk'):
+                 use_incentive=False, solver='glpk'):
         """
         create GridLineOptimizer
 
@@ -142,9 +142,11 @@ class GridLineOptimizer:
         self.voltages = self._make_voltages(voltages)
 
         self.u_trafo = 400
-        self.u_min = 0.91 * self.u_trafo #0.945
+        self.u_min = 0.945 * self.u_trafo #0.91
         self.p_trafo = trafo_power
         self.i_max = self.p_trafo * 1000 / self.u_trafo
+
+        self.use_incentive = use_incentive
 
         self.solver = solver
         self.solver_factory = pe.SolverFactory(self.solver)
@@ -303,7 +305,7 @@ class GridLineOptimizer:
 
 
     def _make_incentive(self):
-        incentive = [t for t in reversed(self.times)]
+        incentive = [(t+1)*100 for t in reversed(self.times)]
         self.incentive = dict(zip(self.times, incentive))
 
 
@@ -555,7 +557,10 @@ class GridLineOptimizer:
             :param model:
             :return: the expression
             """
-            return sum(sum(model.I[t, b] * model.incentive[t] for t in model.times) for b in model.charger_buses)
+            if self.use_incentive:
+                return sum(sum(model.I[t, b] * model.incentive[t] for t in model.times) for b in model.charger_buses)
+            else:
+                return sum(sum(model.I[t, b] for t in model.times) for b in model.charger_buses)
 
 
         model.max_power = pe.Objective(rule=max_power_rule, sense=pe.maximize) # maximize the currents
@@ -672,10 +677,11 @@ class GridLineOptimizer:
             if self.rolling:
                 ft_j = self.bevs[j].t_target
                 ft_k = self.bevs[k].t_target
-                if self.current_timestep < min(ft_j, ft_k):
+                ft = self.current_timestep + self.horizon_width * 60 / self.resolution - 1 # neu hinzu
+                if self.current_timestep < min(ft_j, ft_k): # <
                     if j > k:
-                        fullfillment_j = (model.SOC[ft_j, j] - self.bevs[j].soc_start)/(self.bevs[j].soc_target-self.bevs[j].soc_start)
-                        fullfillment_k = (model.SOC[ft_k, k] - self.bevs[k].soc_start)/(self.bevs[k].soc_target-self.bevs[k].soc_start)
+                        fullfillment_j = (model.SOC[ft, j] - self.bevs[j].soc_start)/(self.bevs[j].soc_target-self.bevs[j].soc_start) # model.SOC[ft_j, j]
+                        fullfillment_k = (model.SOC[ft, k] - self.bevs[k].soc_start)/(self.bevs[k].soc_target-self.bevs[k].soc_start) # model.SOC[ft_k, j]
                         return fullfillment_j - fullfillment_k <= type(self)._OPTIONS['equal SOCs']
 
                     else:
@@ -995,7 +1001,8 @@ class GridLineOptimizer:
         :param kwargs: get directly passed to solver
         :return: None
         """
-        self.solver_factory.solve(self.optimization_model, tee=kwargs['tee'])
+        self.solver_factory.solve(
+            self.optimization_model, tee=kwargs['tee'])
         if type(self)._OPTIONS['log results']:
             self.log_results()
 
@@ -1129,7 +1136,7 @@ class GridLineOptimizer:
         fig, ax = plt.subplots(1, 1, figsize=(6.5, 1.75))
 
         for column in SOCs_df.columns:
-            ax.plot(SOCs_df.index, SOCs_df[column], marker=kwargs['marker'], label=f'SOC des BEV am Knoten {column}')
+            ax.plot(SOCs_df.index, SOCs_df[column], marker=kwargs['marker'], label=f'Node {column+1}')
         if legend:
             ax.legend()
         ax.grid()
@@ -1170,8 +1177,10 @@ class GridLineOptimizer:
         else:
             Is_df, SOCs_df = self._gather_data_for_plotting()
             fig, ax = plt.subplots(2, 1, figsize=(6.3, 4), sharex=True)
+            fig.suptitle('Optimization results')
+
             for column in SOCs_df.columns:
-                ax[0].plot(SOCs_df.index, SOCs_df[column], marker=kwargs['marker'], label=f'Knoten {column+1}')
+                ax[0].plot(SOCs_df.index, SOCs_df[column], marker=kwargs['marker'], label=f'Node {column+1}')
             if legend:
                 ax[0].legend()
             ax[0].grid()
@@ -1182,16 +1191,16 @@ class GridLineOptimizer:
             #ax[0].set_title('SOC over time - results of optimization', fontsize=20)
 
             for column in Is_df.columns:
-                ax[1].plot(Is_df.index, Is_df[column], marker=kwargs['marker'], label=f'Knoten {column+1}')
+                ax[1].plot(Is_df.index, Is_df[column], marker=kwargs['marker'], label=f'Node {column+1}')
             if legend:
                 ax[1].legend()
             ax[1].grid()
-            ax[1].set_ylabel('Strom [A]')
+            ax[1].set_ylabel('Current [A]')
             ax[1].set_xlabel('Time [mm-dd hh]', fontsize=11)
             if compact_x:
                 x_fmt = mdates.DateFormatter('%H')
                 ax[1].xaxis.set_major_formatter(x_fmt)
-                ax[1].set_xlabel('Zeit [hh]')
+                ax[1].set_xlabel('Time [hh]')
             #ax[1].set_title('Current over time - results of optimization', fontsize=20)
 
             if export_data:
@@ -1383,11 +1392,22 @@ class GridLineOptimizer:
         # change)).
         if i > 0:
             for _ in range(len(self.bevs)):
-                ax.lines.pop()
+                for art in ax.lines:
+                    art.remove()#lines.pop()
+
+        colors={
+            0: 'green',
+            1: 'red',
+            2: 'blue',
+            3: 'yellow',
+            4: 'pink',
+            5: 'cyan'
+        }
 
         for num, bev in enumerate(self.bevs):
             ys[num].append(res[bev])
-            ax.plot(x, ys[num])
+            ax.plot(x, ys[num], label=f'Node {self.bevs[bev].home_bus}', color=colors[num])
+            ax.legend()
 
         # add the lines for the prediction of remaining horizon
         for bev in self.bevs:
