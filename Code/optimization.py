@@ -114,7 +114,7 @@ class GridLineOptimizer:
 
     def __init__(self, number_buses, bevs, households, trafo_power, resolution, horizon_width=24,
                  voltages=None, line_impedances=None, line_lengths=None, line_capacities=None,
-                 solver='glpk'):
+                 use_incentive=False, solver='glpk'):
         """
         create GridLineOptimizer
 
@@ -138,12 +138,15 @@ class GridLineOptimizer:
         self.buses = self._make_buses()
         self.lines = self._make_lines()
         self._make_times()
+        self._make_incentive()
         self.voltages = self._make_voltages(voltages)
 
         self.u_trafo = 400
-        self.u_min = 0.91 * self.u_trafo #0.945
+        self.u_min = 0.945 * self.u_trafo #0.91
         self.p_trafo = trafo_power
         self.i_max = self.p_trafo * 1000 / self.u_trafo
+
+        self.use_incentive = use_incentive
 
         self.solver = solver
         self.solver_factory = pe.SolverFactory(self.solver)
@@ -170,6 +173,8 @@ class GridLineOptimizer:
         # are store in here
         self.results_I = {bus: [] for bus in self.bevs}
         self.results_SOC = {bus: [] for bus in self.bevs}
+
+        self.sudden_load = None
 
 
     def _prepare_i_lower_bounds(self):
@@ -297,6 +302,11 @@ class GridLineOptimizer:
         :return: the desired list
         """
         self.times = list(range(self.current_timestep, self.current_timestep+self.horizon_width*int(60/self.resolution)))
+
+
+    def _make_incentive(self):
+        incentive = [(t+1)*100 for t in reversed(self.times)]
+        self.incentive = dict(zip(self.times, incentive))
 
 
     def _make_line_capacities(self, capacities):
@@ -441,6 +451,7 @@ class GridLineOptimizer:
 
         self.current_timestep += 1
         self._make_times()
+        self._make_incentive()
 
         self._prepare_soc_lower_bounds()
         self._prepare_soc_upper_bounds()
@@ -487,6 +498,9 @@ class GridLineOptimizer:
         model.u_trafo = self.u_trafo
         model.i_max = self.i_max
         model.line_capacities = pe.Param(model.lines, initialize=self.line_capacities)
+
+        # incentivize for starting to charge earlier
+        model.incentive = pe.Param(model.times, initialize=self.incentive, within=pe.Integers)
 
         def get_household_currents(model, time, bus):
             """
@@ -543,7 +557,10 @@ class GridLineOptimizer:
             :param model:
             :return: the expression
             """
-            return sum(sum(model.I[t, b] for t in model.times) for b in model.charger_buses)
+            if self.use_incentive:
+                return sum(sum(model.I[t, b] * model.incentive[t] for t in model.times) for b in model.charger_buses)
+            else:
+                return sum(sum(model.I[t, b] for t in model.times) for b in model.charger_buses)
 
 
         model.max_power = pe.Objective(rule=max_power_rule, sense=pe.maximize) # maximize the currents
@@ -660,10 +677,11 @@ class GridLineOptimizer:
             if self.rolling:
                 ft_j = self.bevs[j].t_target
                 ft_k = self.bevs[k].t_target
-                if self.current_timestep < min(ft_j, ft_k):
+                ft = self.current_timestep + self.horizon_width * 60 / self.resolution - 1 # neu hinzu
+                if self.current_timestep < min(ft_j, ft_k): # <
                     if j > k:
-                        fullfillment_j = (model.SOC[ft_j, j] - self.bevs[j].soc_start)/(self.bevs[j].soc_target-self.bevs[j].soc_start)
-                        fullfillment_k = (model.SOC[ft_k, k] - self.bevs[k].soc_start)/(self.bevs[k].soc_target-self.bevs[k].soc_start)
+                        fullfillment_j = (model.SOC[ft, j] - self.bevs[j].soc_start)/(self.bevs[j].soc_target-self.bevs[j].soc_start) # model.SOC[ft_j, j]
+                        fullfillment_k = (model.SOC[ft, k] - self.bevs[k].soc_start)/(self.bevs[k].soc_target-self.bevs[k].soc_start) # model.SOC[ft_k, j]
                         return fullfillment_j - fullfillment_k <= type(self)._OPTIONS['equal SOCs']
 
                     else:
@@ -848,7 +866,8 @@ class GridLineOptimizer:
             lines_df.to_excel(writer, sheet_name='Lines', index=False)
             buses_df.to_excel(writer, sheet_name='Busses', index=False)
 
-
+    # TODO: muss auch die Lasten von SuddenLoad mit berücksichtigen (die fehlen
+    # da bisher
     def export_household_profiles(self):
         """
         export the load profile of the households for further use in grid simulation
@@ -982,7 +1001,8 @@ class GridLineOptimizer:
         :param kwargs: get directly passed to solver
         :return: None
         """
-        self.solver_factory.solve(self.optimization_model, tee=kwargs['tee'])
+        self.solver_factory.solve(
+            self.optimization_model, tee=kwargs['tee'])
         if type(self)._OPTIONS['log results']:
             self.log_results()
 
@@ -1116,7 +1136,7 @@ class GridLineOptimizer:
         fig, ax = plt.subplots(1, 1, figsize=(6.5, 1.75))
 
         for column in SOCs_df.columns:
-            ax.plot(SOCs_df.index, SOCs_df[column], marker=kwargs['marker'], label=f'SOC des BEV am Knoten {column}')
+            ax.plot(SOCs_df.index, SOCs_df[column], marker=kwargs['marker'], label=f'Node {column+1}')
         if legend:
             ax.legend()
         ax.grid()
@@ -1157,8 +1177,10 @@ class GridLineOptimizer:
         else:
             Is_df, SOCs_df = self._gather_data_for_plotting()
             fig, ax = plt.subplots(2, 1, figsize=(6.3, 4), sharex=True)
+            fig.suptitle('Optimization results')
+
             for column in SOCs_df.columns:
-                ax[0].plot(SOCs_df.index, SOCs_df[column], marker=kwargs['marker'], label=f'Knoten {column+1}')
+                ax[0].plot(SOCs_df.index, SOCs_df[column], marker=kwargs['marker'], label=f'Node {column+1}')
             if legend:
                 ax[0].legend()
             ax[0].grid()
@@ -1169,16 +1191,16 @@ class GridLineOptimizer:
             #ax[0].set_title('SOC over time - results of optimization', fontsize=20)
 
             for column in Is_df.columns:
-                ax[1].plot(Is_df.index, Is_df[column], marker=kwargs['marker'], label=f'Knoten {column+1}')
+                ax[1].plot(Is_df.index, Is_df[column], marker=kwargs['marker'], label=f'Node {column+1}')
             if legend:
                 ax[1].legend()
             ax[1].grid()
-            ax[1].set_ylabel('Strom [A]')
+            ax[1].set_ylabel('Current [A]')
             ax[1].set_xlabel('Time [mm-dd hh]', fontsize=11)
             if compact_x:
                 x_fmt = mdates.DateFormatter('%H')
                 ax[1].xaxis.set_major_formatter(x_fmt)
-                ax[1].set_xlabel('Zeit [hh]')
+                ax[1].set_xlabel('Time [hh]')
             #ax[1].set_title('Current over time - results of optimization', fontsize=20)
 
             if export_data:
@@ -1327,6 +1349,7 @@ class GridLineOptimizer:
         # function getting called inside the animation. For each call,
         # build and solve the optimization model for the current horizon
         # and return results for first timestep in the horizon
+        #if self.sudden_load == None:
         self.run_optimization_fixed_horizon(tee=False)
         pred = {
             bev: [self.optimization_model.SOC[t, bev].value
@@ -1336,7 +1359,23 @@ class GridLineOptimizer:
         self._store_results()
         self._prepare_next_timestep()
         self._setup_model()
+        if self.sudden_load != None:
+            self.sudden_load.effect_loads()
+
         return {bev: self.results_SOC[bev][i] for bev in self.bevs}, pred
+
+        # else:
+        #     self.run_optimization_fixed_horizon(tee=False)
+        #     pred = {
+        #         bev: [self.optimization_model.SOC[t, bev].value
+        #               for t in self.times]
+        #         for bev in self.bevs
+        #     }
+        #     self._store_results()
+        #     self._prepare_next_timestep()
+        #     self._setup_model()
+        #     self.sudden_load.effect_loads()
+        #     return {bev: self.results_SOC[bev][i] for bev in self.bevs}, pred
 
 
     def animate(self, i, ax, x, ys):
@@ -1346,22 +1385,33 @@ class GridLineOptimizer:
         x.append(i)
         # y prediction
         #y_pred = self.get_SOC_results()#[self.export_I_results()[bus] for bus in self.bevs]
-        print(pred[0])
+        #print(pred[0])
         x_pred = [i for i in range(self.current_timestep, int(self.current_timestep+self.horizon_width*60/self.resolution))]
         # after the first run (i>0) remove the predictions of the last run
         # (to not get a completely filled plot (in case predictions might
         # change)).
         if i > 0:
             for _ in range(len(self.bevs)):
-                ax.lines.pop()
+                for art in ax.lines:
+                    art.remove()#lines.pop()
+
+        colors={
+            0: 'green',
+            1: 'red',
+            2: 'blue',
+            3: 'yellow',
+            4: 'pink',
+            5: 'cyan'
+        }
 
         for num, bev in enumerate(self.bevs):
             ys[num].append(res[bev])
-            ax.plot(x, ys[num])
+            ax.plot(x, ys[num], label=f'Node {self.bevs[bev].home_bus}', color=colors[num])
+            ax.legend()
 
         # add the lines for the prediction of remaining horizon
         for bev in self.bevs:
-            ax.plot(x_pred, pred[bev][:], color='gray', marker='o')
+            ax.plot(x_pred, pred[bev][:], color='gray')
 
         return ax.lines
 
@@ -1372,7 +1422,7 @@ class GridLineOptimizer:
             yield self.current_timestep
 
 
-    def plot_live(self):
+    def plot_live(self, sudden_load=False):
         # in this function solve subsequentially each horizon and after
         # solution of each horizon plot the data for the fist timestep in the
         # horizon
@@ -1397,6 +1447,81 @@ class GridLineOptimizer:
         )
 
         plt.show()
+
+
+    def add_sudden_load(self, start, end, loads_at_buses=None):
+        self.sudden_load = SuddenLoad(self, start, end, loads_at_buses)
+        return self.sudden_load
+
+
+
+class SuddenLoad:
+    """
+    to add sudden loads while running the optimization in rolling horizon.
+    Choose in which horizon and at which timesteps there will be which
+    additinal load at which bus
+    """
+    def __init__(
+            self,
+            glo_object,
+            first_horizon,
+            last_horizon,
+            loads_at_buses=None
+    ):
+        self.glo_object = glo_object
+        self.first_horizon = first_horizon
+        self.last_horizon = last_horizon
+        self.loads_at_buses = loads_at_buses
+        self.prepare_loads_at_buses()
+        self.check_sanity()
+
+
+    def __print__(self):
+        return(
+            f'Sudden Load effective from timestep {self.first_horizon} '
+            f'till timestep {self.last_horizon}.'
+        )
+
+
+    def check_sanity(self):
+        glo_buses = self.glo_object.buses
+        specified_buses = [bus for bus in self.loads_at_buses]
+        if not set(specified_buses).issubset(glo_buses):
+            raise ValueError(
+                'Specified buses not available in '
+                'specified GridLineOptimizer object.'
+            )
+
+
+    def prepare_loads_at_buses(self):
+        if self.loads_at_buses != None:
+            pass
+
+        else:
+            self.loads_at_buses = {
+                bus: 0 for bus in self.glo_object.buses
+            }
+
+
+    def set_load_at_all_buses(self, load):
+        """
+        sets the same load for all present buses
+
+        :param load: load (W) to be set
+        :return: None
+        """
+        self.loads_at_buses.update(
+            {bus: load for bus in self.glo_object.buses}
+        )
+
+
+    def effect_loads(self):
+        if self.glo_object.current_timestep >= self.first_horizon \
+            and self.glo_object.current_timestep < self.last_horizon:
+            for bus, load in self.loads_at_buses.items():
+                self.glo_object.optimization_model.household_currents[
+                    self.glo_object.current_timestep, bus
+                ] += load / self.glo_object.voltages[bus] # geteilt durch die (angenommene) Spannung an dem Knoten
 
 
 
